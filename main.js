@@ -65,8 +65,9 @@ document.addEventListener('DOMContentLoaded', () => {
             currentX: 0,
             currentLine: 0,
             lastY: null,
-            uV_per_div: 500,
+            uV_per_div: 1000,
             needsReset: true,
+            conversionFactor: 1.0,
         }
     };
     
@@ -87,21 +88,53 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- LÓGICA DE CONEXÃO BLUETOOTH ---
-    // --- LÓGICA DE CONEXÃO BLUETOOTH ---
+    
+    // --- TRECHO MODIFICADO (RENOMEADO E ADAPTADO) ---
+
+    // Processa uma resposta do Control Point
+    function parseControlPointResponse(data) {
+        console.log("📨 Pacote de Resposta do Control Point:", data);
+        const opCode = data.getUint8(1);
+        const errorCode = data.getUint8(3);
+
+        // --- Resposta a "Get Measurement Settings" (opcode 0x01) ---
+        if (opCode === 0x01 && errorCode === 0x00) {
+            console.log("✅ Resposta de Measurement Settings recebida!");
+            for (let i = 4; i < data.byteLength - 5; i++) {
+                const type = data.getUint8(i);
+                if (type === 0x05) { // Tipo 5 = Conversion Factor
+                    const factor = data.getFloat32(i + 2, true);
+                    appState.ecg.conversionFactor = factor;
+                    console.log(
+                        `%c💡 FATOR DE CONVERSÃO DETECTADO: ${factor.toExponential(6)} (µV/unidade)`,
+                        "color: lightgreen; font-weight: bold; font-size: 1.1em;"
+                    );
+                    return;
+                }
+            }
+            console.warn("⚠️ Fator de Conversão (tipo 5) não encontrado na resposta de settings.");
+        }
+
+        // --- Resposta a "Start Measurement" (opcode 0x02) ---
+        else if (opCode === 0x02 && errorCode === 0x00) {
+            console.log("✅ Stream ECG iniciado com sucesso.");
+        }
+
+        else {
+            console.warn(`⚠️ Resposta desconhecida do Control Point (opcode ${opCode})`);
+        }
+    }
+
     btnConectar.addEventListener('click', async () => {
         try {
             statusConexao.textContent = 'Procurando dispositivo...';
             
-            // --- MUDANÇA CRÍTICA AQUI ---
-            // Em vez de filtrar pelo serviço, filtramos pelo nome do dispositivo.
-            // O serviço PMD é listado como opcional para garantir o acesso após a conexão.
             polarDevice = await navigator.bluetooth.requestDevice({
                 filters: [
                     { namePrefix: 'Polar H10' }
                 ],
                 optionalServices: [PMD_SERVICE_UUID]
             });
-            // --- FIM DA MUDANÇA ---
 
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
             const server = await polarDevice.gatt.connect();
@@ -112,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
             statusConexao.textContent = 'Obtendo características...';
             pmdControlPoint = await service.getCharacteristic(PMD_CONTROL_POINT_UUID);
             pmdData = await service.getCharacteristic(PMD_DATA_MTU_UUID);
-
+            
             statusConexao.textContent = `Conectado a ${polarDevice.name}`;
             btnConectar.textContent = 'Conectado';
             btnConectar.disabled = true;
@@ -140,26 +173,37 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- LÓGICA DE CONTROLE DE STREAM ---
 
+    // 🧠 Fator de conversão fixo (conforme documentação Polar Measurement Data, seção 4.2.2)
+    // Cada unidade digital equivale a 1 µV.
+    const MICROVOLTS_PER_UNIT = 1.0;
+
     async function startStream() {
         if (!polarDevice || !pmdControlPoint || appState.streamAtivo) return;
 
         try {
             appState.streamAtivo = true;
+
+            // Ativa notificações antes de iniciar o stream
+            pmdData.addEventListener('characteristicvaluechanged', handlePmdDataNotification);
             await pmdData.startNotifications();
 
             if (appState.modo === 'ecg') {
-                pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
-                
+                console.log("▶️ Iniciando stream ECG (modo fixo, fator 1 µV/unidade)");
+
+                // Comando padrão de start ECG (online measurement)
                 const startEcgCommand = new Uint8Array([
-                    0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
+                    0x02, // Request measurement start
+                    0x00, // Measurement type: ECG
+                    0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
                 ]);
                 await pmdControlPoint.writeValue(startEcgCommand);
-                
+
                 appState.ecg.needsReset = true;
                 if (!appState.ecg.desenhando) requestAnimationFrame(drawLoop);
+            }
 
-            } else if (appState.modo === 'hrppi') {
-                pmdData.addEventListener('characteristicvaluechanged', handlePpiData);
+            else if (appState.modo === 'hrppi') {
+                console.log("▶️ Iniciando stream HR/PPI");
                 await pmdControlPoint.writeValue(new Uint8Array([0x02, 0x03]));
             }
         } catch (error) {
@@ -176,9 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await pmdControlPoint.writeValue(new Uint8Array([0x03, measurementType]));
 
             await pmdData.stopNotifications();
-            pmdData.removeEventListener('characteristicvaluechanged', handleEcgData);
-            pmdData.removeEventListener('characteristicvaluechanged', handlePpiData);
-
+            pmdData.removeEventListener('characteristicvaluechanged', handlePmdDataNotification);
         } catch (error) {
             console.error("Erro ao parar stream:", error);
         } finally {
@@ -186,29 +228,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleEcgData(event) {
-        const value = event.target.value;
-        const data = new DataView(value.buffer);
-        
-        // Fator de escala fixo derivado da documentação
-        // Alcance de ±20,000 µV para uma resolução de 14 bits (±8191)
-        const ECG_SCALE_FACTOR = 20000 / 8191;
-
+    // --- PARSING DO ECG SIMPLIFICADO (fator fixo 1 µV/unidade) ---
+    function parseEcgData(data) {
         for (let i = 10; i < data.byteLength; i += 3) {
-            // 1. Lê o valor bruto como um número de 24 bits com sinal.
-            const raw24bitSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
-            // 2. Extrai o valor real de 14 bits com sinal para garantir que estamos no range correto.
-            const raw14bitSample = (raw24bitSample << 18) >> 18;            
-            // 3. Aplica o fator de escala para obter o valor final em microvolts (µV)
-            const ecgSampleInMicrovolts = raw14bitSample * ECG_SCALE_FACTOR;
+            const raw24bitSample =
+                (data.getInt8(i + 2) << 16) |
+                (data.getUint8(i + 1) << 8) |
+                data.getUint8(i);
+
+            const ecgSampleInMicrovolts = raw24bitSample * MICROVOLTS_PER_UNIT;
             appState.ecg.buffer.push(ecgSampleInMicrovolts);
         }
     }
 
-    function handlePpiData(event) {
-        const data = event.target.value;
+    // --- PARSING DO HR/PPI ---
+    function parsePpiData(data) {
         const hr = data.getUint8(10);
-        const ppi = data.getUint16(11, true); // true para little-endian
+        const ppi = data.getUint16(11, true);
         const error = data.getUint16(13, true);
         const flags = data.getUint8(15);
         
@@ -222,6 +258,19 @@ document.addEventListener('DOMContentLoaded', () => {
         ppiErrorValueEl.textContent = error;
         ppiFlagsValueEl.textContent = flagDetails.length > 0 ? flagDetails.join(', ') : 'OK';
     }
+
+    // --- TRATAMENTO DAS NOTIFICAÇÕES ---
+    function handlePmdDataNotification(event) {
+        const data = new DataView(event.target.value.buffer);
+        const packetType = data.getUint8(0);
+
+        if (packetType === 0x00) {
+            parseEcgData(data);
+        } else if (packetType === 0x03) {
+            parsePpiData(data);
+        }
+    }
+
     
     // --- LÓGICA DE CONFIGURAÇÃO E UI ---
     function updateUiForMode() {
@@ -364,6 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         ctx.fillText(text1, 10, height - 28);
         ctx.fillText(text2, 10, height - 10);
+        
     }
     
     function drawLoop() {
