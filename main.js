@@ -65,8 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
             currentX: 0,
             currentLine: 0,
             lastY: null,
-            gain: 0.5, // Fator de amplificação do sinal no canvas
-            needsReset: true
+            uV_per_div: 500,
+            needsReset: true,
         }
     };
     
@@ -76,6 +76,10 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.values(menuButtons).forEach(b => b.classList.remove('active'));
         views[viewName].classList.add('active');
         menuButtons[viewName].classList.add('active');
+
+        if (viewName === 'aquisicao') {
+            resizeCanvas();
+        }
     }
 
     Object.keys(menuButtons).forEach(key => {
@@ -83,13 +87,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- LÓGICA DE CONEXÃO BLUETOOTH ---
+    // --- LÓGICA DE CONEXÃO BLUETOOTH ---
     btnConectar.addEventListener('click', async () => {
         try {
             statusConexao.textContent = 'Procurando dispositivo...';
+            
+            // --- MUDANÇA CRÍTICA AQUI ---
+            // Em vez de filtrar pelo serviço, filtramos pelo nome do dispositivo.
+            // O serviço PMD é listado como opcional para garantir o acesso após a conexão.
             polarDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [PMD_SERVICE_UUID] }],
-                acceptAllDevices: false,
+                filters: [
+                    { namePrefix: 'Polar H10' }
+                ],
+                optionalServices: [PMD_SERVICE_UUID]
             });
+            // --- FIM DA MUDANÇA ---
 
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
             const server = await polarDevice.gatt.connect();
@@ -108,12 +120,10 @@ document.addEventListener('DOMContentLoaded', () => {
             polarDevice.addEventListener('gattserverdisconnected', onDisconnect);
 
         } catch (error) {
-            // Verifica se o erro foi o cancelamento pelo usuário
             if (error.name === 'NotFoundError') {
                 console.log('Busca de dispositivo cancelada pelo usuário.');
                 statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
             } else {
-                // Se for qualquer outro erro, exibe a mensagem
                 console.error('Erro na conexão Bluetooth:', error);
                 statusConexao.textContent = `Erro: ${error.message}`;
             }
@@ -129,23 +139,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // --- LÓGICA DE CONTROLE DE STREAM ---
+
     async function startStream() {
         if (!polarDevice || !pmdControlPoint || appState.streamAtivo) return;
 
         try {
             appState.streamAtivo = true;
+            await pmdData.startNotifications();
+
             if (appState.modo === 'ecg') {
-                await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
-                // Comando para iniciar ECG (tipo 0)
-                await pmdControlPoint.writeValue(new Uint8Array([0x02, 0x00]));
+                
+                const startEcgCommand = new Uint8Array([
+                    0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
+                ]);
+                await pmdControlPoint.writeValue(startEcgCommand);
+                
                 appState.ecg.needsReset = true;
                 if (!appState.ecg.desenhando) requestAnimationFrame(drawLoop);
 
             } else if (appState.modo === 'hrppi') {
-                await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handlePpiData);
-                // Comando para iniciar PPI (tipo 3)
                 await pmdControlPoint.writeValue(new Uint8Array([0x02, 0x03]));
             }
         } catch (error) {
@@ -159,8 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         try {
             const measurementType = appState.modo === 'ecg' ? 0x00 : 0x03;
-            // Comando para parar a medição
             await pmdControlPoint.writeValue(new Uint8Array([0x03, measurementType]));
+
             await pmdData.stopNotifications();
             pmdData.removeEventListener('characteristicvaluechanged', handleEcgData);
             pmdData.removeEventListener('characteristicvaluechanged', handlePpiData);
@@ -172,15 +186,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- LÓGICA DE PARSING DE DADOS ---
     function handleEcgData(event) {
         const value = event.target.value;
         const data = new DataView(value.buffer);
-        // ECG data começa no byte 10
+        
+        // Fator de escala fixo derivado da documentação
+        // Alcance de ±20,000 µV para uma resolução de 14 bits (±8191)
+        const ECG_SCALE_FACTOR = 20000 / 8191;
+
         for (let i = 10; i < data.byteLength; i += 3) {
-            // Ler um valor de 24 bits com sinal (little-endian)
-            let ecgSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
-            appState.ecg.buffer.push(ecgSample);
+            // 1. Lê o valor bruto como um número de 24 bits com sinal.
+            const raw24bitSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
+            // 2. Extrai o valor real de 14 bits com sinal para garantir que estamos no range correto.
+            const raw14bitSample = (raw24bitSample << 18) >> 18;            
+            // 3. Aplica o fator de escala para obter o valor final em microvolts (µV)
+            const ecgSampleInMicrovolts = raw14bitSample * ECG_SCALE_FACTOR;
+            appState.ecg.buffer.push(ecgSampleInMicrovolts);
         }
     }
 
@@ -247,10 +268,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function resizeCanvas() {
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
+
+        // Define o tamanho real do canvas em pixels físicos
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
+
+        // --- CORREÇÃO CRÍTICA ---
+        // Reseta qualquer transformação anterior antes de aplicar a nova escala.
+        // Isso impede o efeito de escala cumulativo.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        // --- FIM DA CORREÇÃO ---
+
+        // Aplica a escala para corresponder à densidade de pixels do dispositivo
         ctx.scale(dpr, dpr);
-        appState.ecg.needsReset = true; // Redesenhar ao redimensionar
+        
+        // Força o redesenho do grid com as novas dimensões corretas
+        appState.ecg.needsReset = true;
     }
 
     function drawGrid() {
@@ -260,11 +293,47 @@ document.addEventListener('DOMContentLoaded', () => {
         const numLinhas = appState.config.ecg.numLinhas;
         const lineHeight = height / numLinhas;
         const secs = appState.config.ecg.larguraTemporal;
+        const pixelsPerSecond = width / secs;
 
-        ctx.strokeStyle = '#222';
+        // --- NÍVEL 1: Malha Fina (Minor Grid) ---
+        ctx.strokeStyle = '#e0e0e0'; // Cinza bem claro
+        ctx.lineWidth = 0.5;
+
+        // Linhas Horizontais Finas (10 por divisão principal)
+        const minorHorizontalStep = lineHeight / 10;
+        for (let y = minorHorizontalStep; y < height; y += minorHorizontalStep) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Linhas Verticais Finas (10 por segundo, ou seja, a cada 0.1s)
+        const minorVerticalStep = pixelsPerSecond / 10;
+        for (let x = minorVerticalStep; x < width; x += minorVerticalStep) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- NÍVEL 2: Malha Intermediária (A CADA 0.5 SEGUNDOS) ---
+        ctx.strokeStyle = '#cccccc'; // Um cinza um pouco mais escuro
+        ctx.lineWidth = 0.75; // Um pouco mais espessa que a fina
+        
+        const pixelsPerHalfSecond = pixelsPerSecond / 2;
+        for (let x = pixelsPerHalfSecond; x < width; x += pixelsPerSecond) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- NÍVEL 3: Malha Grossa (Major Grid) ---
+        ctx.strokeStyle = '#aaaaaa'; // Cinza escuro
         ctx.lineWidth = 1;
 
-        // Linhas Horizontais
+        // Linhas Horizontais Grossas
         for (let i = 1; i < numLinhas; i++) {
             const y = i * lineHeight;
             ctx.beginPath();
@@ -273,26 +342,28 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.stroke();
         }
 
-        // Linhas Verticais
-        for (let i = 0; i <= secs; i++) {
-            const x = (i / secs) * width;
-            // Linhas de 0.5s
-            if(i < secs) {
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                ctx.moveTo(x + (width / secs / 2), 0);
-                ctx.lineTo(x + (width / secs / 2), height);
-                ctx.stroke();
-            }
-            // Linhas de 1s
-            ctx.strokeStyle = '#444';
-            ctx.lineWidth = 1;
+        // Linhas Verticais Grossas (a cada segundo)
+        for (let i = 1; i < secs; i++) {
+            const x = i * pixelsPerSecond;
             ctx.beginPath();
             ctx.moveTo(x, 0);
             ctx.lineTo(x, height);
             ctx.stroke();
         }
+        
+        // --- Texto de Calibração (Legenda) ---
+        const uV_per_div = Math.round(lineHeight / appState.ecg.gain);
+        
+        const text1 = `${appState.ecg.uV_per_div} µV/div`;
+        const text2 = '1 s/div';
+        
+        ctx.fillStyle = '#1a1a1a'; // Cor do texto
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        
+        ctx.fillText(text1, 10, height - 28);
+        ctx.fillText(text2, 10, height - 10);
     }
     
     function drawLoop() {
@@ -309,11 +380,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
         const lineHeight = height / appState.config.ecg.numLinhas;
+
+        // --- CÁLCULO DINÂMICO DO GANHO ---
+        // O ganho é a altura em pixels de uma divisão, dividido pela escala em µV.
+        const gain = lineHeight / appState.ecg.uV_per_div;
+        // --- FIM DA CORREÇÃO ---
+
         const pixelsPerSecond = width / appState.config.ecg.larguraTemporal;
         const pixelsPerSample = pixelsPerSecond / appState.ecg.sampleRate;
         const lineOffsetY = (appState.ecg.currentLine * lineHeight) + (lineHeight / 2);
         
-        ctx.strokeStyle = '#00ff00';
+        ctx.strokeStyle = '#0052cc';
         ctx.lineWidth = 1.5;
         
         ctx.beginPath();
@@ -322,11 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         while(appState.ecg.buffer.length > 0) {
-            const sample = appState.ecg.buffer.shift(); // Pega o primeiro sample
+            const sample = appState.ecg.buffer.shift();
             
-            // Mapeia o valor do ECG (em µV) para uma coordenada Y no canvas
-            // O valor de 'gain' e o divisor são empíricos, ajuste para melhor visualização
-            const currentY = lineOffsetY - (sample * appState.ecg.gain / 1000); 
+            // Aplica o ganho calculado dinamicamente
+            const currentY = lineOffsetY - (sample * gain); 
 
             if (appState.ecg.lastY === null) {
                 ctx.moveTo(appState.ecg.currentX, currentY);
@@ -344,9 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (appState.ecg.currentLine >= appState.config.ecg.numLinhas) {
                     appState.ecg.currentLine = 0;
-                    drawGrid(); // Limpa e redesenha o grid para começar de novo
+                    drawGrid();
                 }
-                // Quebra o loop para renderizar o que já foi processado
                 break;
             }
         }
@@ -359,7 +434,6 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.ecg.desenhando = false;
         }
     }
-
 
     // --- INICIALIZAÇÃO ---
     function init() {
