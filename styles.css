@@ -1,0 +1,163 @@
+:root {
+    --bg-color: #1a1a1a;
+    --text-color: #f0f0f0;
+    --primary-color: #e60012; /* Cor da Polar */
+    --grid-color: #444;
+    --grid-color-light: #333;
+    --canvas-bg: #000;
+    --ecg-line-color: #00ff00;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+header {
+    background-color: #333;
+    padding: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+nav {
+    display: flex;
+    justify-content: space-around;
+}
+
+.menu-btn {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    font-size: 1rem;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease-in-out;
+}
+
+.menu-btn:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+
+.menu-btn.active {
+    border-bottom: 2px solid var(--primary-color);
+    font-weight: bold;
+}
+
+main {
+    flex-grow: 1;
+    padding: 20px;
+    position: relative;
+    overflow-y: auto;
+}
+
+.view {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+}
+
+.view.active {
+    display: flex;
+}
+
+h1, h2 {
+    color: var(--text-color);
+    border-bottom: 1px solid var(--grid-color);
+    padding-bottom: 10px;
+    width: 100%;
+    text-align: center;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    font-size: 1.1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+#status-conexao {
+    margin-top: 20px;
+    font-style: italic;
+    color: #aaa;
+}
+
+/* Estilos de Aquisição */
+.modo-aquisicao {
+    width: 100%;
+    display: none; /* Controlado por JS */
+}
+
+.canvas-container {
+    width: 100%;
+    height: 60vh;
+    margin-bottom: 20px;
+    background-color: var(--canvas-bg);
+}
+
+#ecg-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.hr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    width: 100%;
+    text-align: center;
+}
+
+.hr-item {
+    background-color: #2a2a2a;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.hr-item h3 {
+    margin-top: 0;
+    color: #ccc;
+}
+
+.hr-item p {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--ecg-line-color);
+    margin-bottom: 0;
+}
+
+
+/* Estilos de Configuração */
+fieldset {
+    border: 1px solid var(--grid-color);
+    border-radius: 5px;
+    margin-top: 20px;
+    width: 90%;
+    max-width: 500px;
+}
+
+legend {
+    color: var(--primary-color);
+    font-weight: bold;
+    padding: 0 10px;
+}
+
+label {
+    display: block;
+    margin: 15px 0;
+}
+
+input[type="range"] {
+    width: 100%;
+}

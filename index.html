@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor Cardíaco PH10</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#333"/>
+    <script src="main.js" defer></script>
+</head>
+<body>
+    <header>
+        <nav>
+            <button id="btn-conexao" class="menu-btn active">Conexão</button>
+            <button id="btn-aquisicao" class="menu-btn">Aquisição</button>
+            <button id="btn-config" class="menu-btn">Config</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Seção de Conexão com o Dispositivo -->
+        <div id="view-conexao" class="view active">
+            <h1>Conexão com Polar H10</h1>
+            <p id="status-conexao">Status: Desconectado</p>
+            <button id="btn-conectar">Conectar ao Dispositivo</button>
+        </div>
+
+        <!-- Seção de Aquisição de Dados -->
+        <div id="view-aquisicao" class="view">
+            <div id="modo-ecg" class="modo-aquisicao">
+                <div class="canvas-container">
+                    <canvas id="ecg-canvas"></canvas>
+                </div>
+            </div>
+            <div id="modo-hrppi" class="modo-aquisicao">
+                <h2>Dados de Frequência Cardíaca e PPI</h2>
+                <div class="hr-grid">
+                    <div class="hr-item">
+                        <h3>Frequência Cardíaca (bpm)</h3>
+                        <p id="hr-value">--</p>
+                    </div>
+                    <div class="hr-item">
+                        <h3>Intervalo PP (ms)</h3>
+                        <p id="ppi-value">--</p>
+                    </div>
+                    <div class="hr-item">
+                        <h3>Erro Estimado PP (ms)</h3>
+                        <p id="ppi-error-value">--</p>
+                    </div>
+                     <div class="hr-item">
+                        <h3>Flags PP</h3>
+                        <p id="ppi-flags-value">--</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Seção de Configuração -->
+        <div id="view-config" class="view">
+            <h1>Configurações</h1>
+            <fieldset>
+                <legend>Modo de Aquisição</legend>
+                <label><input type="radio" name="modo" value="ecg" checked> ECG</label>
+                <label><input type="radio" name="modo" value="hrppi"> HR / PPI</label>
+            </fieldset>
+
+            <div id="config-ecg">
+                <fieldset>
+                    <legend>Configurações do Gráfico ECG</legend>
+                    <label for="slider-largura">Largura Temporal: <span id="largura-label">10</span>s</label>
+                    <input type="range" id="slider-largura" min="1" max="60" value="10">
+
+                    <label for="slider-linhas">Número de Linhas: <span id="linhas-label">5</span></label>
+                    <input type="range" id="slider-linhas" min="1" max="10" value="5">
+                </fieldset>
+            </div>
+             <div id="config-hrppi" style="display: none;">
+                <fieldset>
+                    <legend>Configurações HR/PPI</legend>
+                     <p><i>(Configurações futuras aqui, como período de média)</i></p>
+                </fieldset>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>
