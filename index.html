@@ -10,6 +10,21 @@
     <script src="main.js" defer></script>
 </head>
 <body>
+    <!-- Bloco do Modal de Aviso -->
+    <div id="disclaimer-overlay">
+        <div id="disclaimer-modal">
+            <h2>⚠️ AVISO IMPORTANTE ⚠️</h2>
+            <p>
+                <strong>Este projeto é estritamente educacional e experimental.</strong><br><br>
+                Ele <strong>não possui certificação da ANVISA</strong> ou de qualquer outra agência regulatória. As informações exibidas <strong>NÃO DEVEM SER UTILIZADAS</strong> para diagnóstico médico, autoavaliação ou como substituto de uma consulta profissional.<br><br>
+                A aplicação pode apresentar interpretações incorretas, incluindo <strong>falsos positivos e falsos negativos</strong> de qualquer condição. Os desenvolvedores <strong>não se responsabilizam</strong> por quaisquer decisões ou ações tomadas com base nos dados apresentados por este software.
+            </p>
+            <div class="disclaimer-buttons">
+                <button id="btn-agree">Entendi e Concordo</button>
+                <button id="btn-disagree" class="secondary">Não Concordo</button>
+            </div>
+        </div>
+    </div>
     <header>
         <nav>
             <button id="btn-conexao" class="menu-btn active">Conexão</button>

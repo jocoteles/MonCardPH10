@@ -34,10 +34,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('ecg-canvas');
     const ctx = canvas.getContext('2d');
 
+    // Elementos do Modal de Aviso
+    const disclaimerOverlay = document.getElementById('disclaimer-overlay');
+    const btnAgree = document.getElementById('btn-agree');
+    const btnDisagree = document.getElementById('btn-disagree');
+
     // --- CONSTANTES BLUETOOTH (Baseado na documentação Polar) ---
-    const PMD_SERVICE_UUID = "fb005c80-02e7-f387-1cad-8acd2d8df0c";
+    const PMD_SERVICE_UUID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_CONTROL_POINT_UUID = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_DATA_MTU_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
+
 
     // --- ESTADO DA APLICAÇÃO ---
     let polarDevice = null;
@@ -102,8 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
             polarDevice.addEventListener('gattserverdisconnected', onDisconnect);
 
         } catch (error) {
-            console.error('Erro na conexão Bluetooth:', error);
-            statusConexao.textContent = `Erro: ${error.message}`;
+            // Verifica se o erro foi o cancelamento pelo usuário
+            if (error.name === 'NotFoundError') {
+                console.log('Busca de dispositivo cancelada pelo usuário.');
+                statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
+            } else {
+                // Se for qualquer outro erro, exibe a mensagem
+                console.error('Erro na conexão Bluetooth:', error);
+                statusConexao.textContent = `Erro: ${error.message}`;
+            }
         }
     });
 
@@ -350,6 +363,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- INICIALIZAÇÃO ---
     function init() {
+        // --- LÓGICA DO MODAL DE AVISO ---
+        btnAgree.addEventListener('click', () => {
+            disclaimerOverlay.style.display = 'none';
+        });
+
+        btnDisagree.addEventListener('click', () => {
+            document.body.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; padding: 20px; font-size: 1.2rem;">
+                    <p>Você precisa concordar com os termos para utilizar esta aplicação.</p>
+                </div>
+            `;
+        });
+        
         // Registro do Service Worker para PWA
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(err => {

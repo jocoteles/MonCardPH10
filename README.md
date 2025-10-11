@@ -2,7 +2,7 @@
 
 ---
 
-> ## ⚠️ AVISO IMPORTANTE ⚠️
+> ## ⚠️ AVISO IMPORTANTE
 >
 > **Este projeto é estritamente educacional e experimental.**
 >
