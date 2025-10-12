@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const batteryStatusValueEl = document.getElementById('battery-status-value');
 
     const btnSaveEcg = document.getElementById('btn-save-ecg');
+    const btnSavePng = document.getElementById('btn-save-png');
     const btnLoadEcg = document.getElementById('btn-load-ecg');
     const btnShowLastEcg = document.getElementById('btn-show-last-ecg');
     const btnShowLiveEcg = document.getElementById('btn-show-live-ecg');
@@ -79,12 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
             buffer: [],
             rollingBuffer: [], 
             loadedData: null, 
-            // NOVO ESTADO: Armazena a última varredura completa com seu timestamp
             lastFullEcg: {
                 samples: [],
                 timestamp: null
             },
-            startTimestamp: null, // Timestamp da varredura ATUAL
+            startTimestamp: null,
             sampleRate: 130,
             desenhando: false,
             currentX: 0,
@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 appState.ecg.buffer = [];
                 appState.ecg.rollingBuffer = [];
-                appState.ecg.lastFullEcg = { samples: [], timestamp: null }; // Reseta o último ECG
+                appState.ecg.lastFullEcg = { samples: [], timestamp: null };
                 appState.ecg.startTimestamp = new Date();
 
                 await pmdData.startNotifications();
@@ -349,27 +349,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
     function resizeCanvas() {
         const dpr = window.devicePixelRatio || 1;
+        
         const rect = canvas.getBoundingClientRect();
+        const visibleHeight = rect.height;
+        const lineHeight = visibleHeight / appState.config.ecg.numLinhas;
+        const margin = lineHeight / 2; // Margem de meia divisão
+
         canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
+        canvas.height = (visibleHeight + 2 * margin) * dpr;
+
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
-        appState.ecg.needsReset = true;
+        ctx.translate(0, margin);
 
+        appState.ecg.needsReset = true;
         if (appState.displayMode !== 'live') {
-            redrawStaticEcg();
+            redrawStaticEcg(); // Redesenha o ECG estático com a nova margem
         }
     }
 
     function drawGrid() {
-        ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
         const numLinhas = appState.config.ecg.numLinhas;
         const lineHeight = height / numLinhas;
         const secs = appState.config.ecg.larguraTemporal;
         const pixelsPerSecond = width / secs;
+        const margin = lineHeight / 2;
 
+        ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2*margin);
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 0.5;
         const minorHorizontalStep = lineHeight / 10;
@@ -398,12 +406,44 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
         }
         
+        ctx.strokeStyle = '#e60012'; // Vermelho
+        ctx.fillStyle = '#e60012';   // Vermelho para o texto
+        ctx.lineWidth = 2;
+        ctx.font = '12px sans-serif';
+
+        // 2. Calcular Posições
+        const barWidth = pixelsPerSecond; // A largura da barra é exatamente 1 segundo em pixels
+        const startX = (width - barWidth) / 2; // Centralizado horizontalmente
+        const endX = startX + barWidth;
+        const barY = height + margin / 2; // Centralizado verticalmente na margem inferior
+        const tickHeight = 8; // Altura dos traços nas pontas
+
+        // 3. Desenhar a Barra e os Traços
+        ctx.beginPath();
+        // Barra principal
+        ctx.moveTo(startX, barY);
+        ctx.lineTo(endX, barY);
+        // Traço inicial
+        ctx.moveTo(startX, barY - tickHeight / 2);
+        ctx.lineTo(startX, barY + tickHeight / 2);
+        // Traço final
+        ctx.moveTo(endX, barY - tickHeight / 2);
+        ctx.lineTo(endX, barY + tickHeight / 2);
+        ctx.stroke();
+
+        // 4. Desenhar o Texto
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('1 s', width / 2, barY + 5); // 5 pixels abaixo da barra
+
         ctx.fillStyle = '#1a1a1a';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(`${appState.ecg.uV_per_div} units/div`, 10, height - 28);
-        ctx.fillText('1 s/div', 10, height - 10);
+
+        // As coordenadas Y agora são baseadas na altura VISÍVEL + a margem inferior
+        ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height + margin - 15); // Linha superior da margem
+        ctx.fillText('1 s/div', 10, height + margin - 2); // Linha inferior da margem
     }
     
     function formatTimestamp(date) {
@@ -421,16 +461,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function drawTimestamp(timestamp) {
         const { time, date } = formatTimestamp(timestamp);
-        const height = canvas.clientHeight;
+        const height = canvas.clientHeight; // A altura VISÍVEL é a altura base
         const width = canvas.clientWidth;
-        
+        const numLinhas = appState.config.ecg.numLinhas;
+        const lineHeight = height / numLinhas;
+        const margin = lineHeight / 2; // Calcula a margem para posicionamento
+
         ctx.fillStyle = '#1a1a1a';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
         
-        ctx.fillText(time, width - 10, height - 28);
-        ctx.fillText(date, width - 10, height - 10);
+        ctx.fillText(time, width - 10, height + margin - 15); // Linha superior da margem
+        ctx.fillText(date, width - 10, height + margin - 2);  // Linha inferior da margem
     }
 
     function drawLoop() {
@@ -484,14 +527,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.ecg.lastY = null;
                 
                 if (appState.ecg.currentLine >= appState.config.ecg.numLinhas) {
-                    // PONTO CRÍTICO: Captura a varredura completa antes de reiniciar
                     appState.ecg.lastFullEcg = {
-                        samples: [...appState.ecg.rollingBuffer], // Copia os dados
-                        timestamp: appState.ecg.startTimestamp    // Associa o timestamp correto
+                        samples: [...appState.ecg.rollingBuffer],
+                        timestamp: appState.ecg.startTimestamp 
                     };
 
                     appState.ecg.currentLine = 0;
-                    appState.ecg.startTimestamp = new Date(); // Atualiza o timestamp para a NOVA varredura
+                    appState.ecg.startTimestamp = new Date();
                     drawGrid();
                     drawTimestamp(appState.ecg.startTimestamp);
                 }
@@ -527,16 +569,42 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Int32Array(bytes.buffer);
     }
 
+    // Retorna os dados e o timestamp do que está sendo exibido no momento.
+    function getCurrentDisplayData() {
+        switch (appState.displayMode) {
+            case 'live':
+                return { 
+                    samples: appState.ecg.rollingBuffer, 
+                    timestamp: appState.ecg.startTimestamp 
+                };
+            case 'loaded':
+                return appState.ecg.loadedData;
+            case 'last':
+                // Prioriza a última varredura completa, senão usa a aquisição atual como fallback
+                if (appState.ecg.lastFullEcg.samples.length > 0) {
+                    return appState.ecg.lastFullEcg;
+                } else {
+                    return { 
+                        samples: appState.ecg.rollingBuffer, 
+                        timestamp: appState.ecg.startTimestamp 
+                    };
+                }
+            default:
+                return { samples: [], timestamp: null };
+        }
+    }
+
     function saveEcgData() {
-        // MUDANÇA: Agora salva a partir do `lastFullEcg` para garantir integridade
-        if (appState.ecg.lastFullEcg.samples.length === 0) {
-            alert("Nenhuma varredura de ECG completa foi gravada para salvar.");
+        const dataToSave = getCurrentDisplayData();
+
+        if (!dataToSave || dataToSave.samples.length === 0) {
+            alert("Não há dados de ECG visíveis na tela para salvar.");
             return;
         }
 
-        const samplesToSave = new Int32Array(appState.ecg.lastFullEcg.samples);
+        const samplesToSave = new Int32Array(dataToSave.samples);
         const saveData = {
-            timestamp: appState.ecg.lastFullEcg.timestamp.toISOString(),
+            timestamp: dataToSave.timestamp.toISOString(),
             sampleRate: appState.ecg.sampleRate,
             uV_per_div: appState.ecg.uV_per_div,
             samples_base64: arrayBufferToBase64(samplesToSave.buffer)
@@ -547,12 +615,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        const filename = `ECG_${appState.ecg.lastFullEcg.timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
+        const filename = `ECG_${dataToSave.timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+
+    function saveCanvasAsPng() {
+        const currentData = getCurrentDisplayData();
+        const timestamp = currentData.timestamp || new Date();
+        const filename = `ECG-PNG_${timestamp.toISOString().replace(/[:.]/g, '-')}.png`;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        tempCtx.fillStyle = '#ffffff'; // Define a cor de preenchimento para branco
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height); // Preenche todo o canvas
+        tempCtx.drawImage(canvas, 0, 0);
+
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = tempCanvas.toDataURL('image/png'); // Gera a imagem a partir do canvas temporário
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
     function loadEcgData(event) {
@@ -583,25 +673,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
         reader.readAsText(file);
-        fileInputEcg.value = ''; // Permite carregar o mesmo arquivo novamente
+        fileInputEcg.value = '';
     }
 
     function redrawStaticEcg() {
-        let data, timestamp;
+        const dataToDraw = getCurrentDisplayData();
+        const data = dataToDraw.samples;
+        const timestamp = dataToDraw.timestamp;
 
-        // MUDANÇA: Puxa os dados e o timestamp da fonte correta
-        if (appState.displayMode === 'last') {
-            data = appState.ecg.lastFullEcg.samples;
-            timestamp = appState.ecg.lastFullEcg.timestamp;
-        } else if (appState.displayMode === 'loaded' && appState.ecg.loadedData) {
-            data = appState.ecg.loadedData.samples;
-            timestamp = appState.ecg.loadedData.timestamp;
-        } else {
+        if (!data || data.length === 0) {
+            // Se não houver nada para desenhar (caso raro), apenas limpa a grade
+            drawGrid();
+            drawTimestamp(null);
             return;
         }
 
         drawGrid();
-        drawTimestamp(timestamp); // Usa o timestamp associado aos dados!
+        drawTimestamp(timestamp);
         
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
@@ -639,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastY = null;
                 
                 if (currentLine >= appState.config.ecg.numLinhas) {
-                    break; // Para de desenhar se a tela (configurada) estiver cheia
+                    break;
                 }
                 ctx.beginPath();
             }
@@ -692,13 +780,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         btnSaveEcg.addEventListener('click', saveEcgData);
+        btnSavePng.addEventListener('click', saveCanvasAsPng);
         btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
         fileInputEcg.addEventListener('change', loadEcgData);
         
         btnShowLastEcg.addEventListener('click', () => {
-            // MUDANÇA: Verifica a existência de um ECG completo
-            if (appState.ecg.lastFullEcg.samples.length === 0) {
-                alert("Nenhuma varredura de ECG completa foi gravada ainda.");
+            if (appState.ecg.lastFullEcg.samples.length === 0 && appState.ecg.rollingBuffer.length === 0) {
+                alert("Nenhum dado de ECG foi gravado ainda.");
                 return;
             }
             appState.displayMode = 'last';
@@ -707,14 +795,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         btnShowLiveEcg.addEventListener('click', () => {
             appState.displayMode = 'live';
-            appState.ecg.needsReset = true;
-            appState.ecg.startTimestamp = new Date(); 
+            appState.ecg.startTimestamp = new Date(); // 1. Define o novo tempo
+            appState.ecg.rollingBuffer = [];           // 2. Limpa os dados da varredura
+            appState.ecg.buffer = [];                   // 3. Limpa dados não processados
+            appState.ecg.currentX = 0;                  // 4. Reseta a posição do desenho
+            appState.ecg.currentLine = 0;
+            appState.ecg.lastY = null;
+            appState.ecg.needsReset = true;             // 5. Força a limpeza do canvas e redesenho da grade
             
             if (appState.streamAtivo && !appState.ecg.desenhando) {
                 requestAnimationFrame(drawLoop);
             } else if (!appState.streamAtivo) {
+                // Se o stream não estiver ativo, apenas mostra a grade limpa com o novo tempo
                 drawGrid();
-                drawTimestamp(null);
+                drawTimestamp(appState.ecg.startTimestamp);
             }
         });
     }
