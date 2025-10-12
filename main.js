@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ppiValueEl = document.getElementById('ppi-value');
     const ppiErrorValueEl = document.getElementById('ppi-error-value');
     const ppiFlagsValueEl = document.getElementById('ppi-flags-value');
+    const bpmDisplayEl = document.getElementById('bpm-display');
 
     // Elementos de Config
     const radioModo = document.querySelectorAll('input[name="modo"]');
@@ -29,6 +30,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const larguraLabel = document.getElementById('largura-label');
     const sliderLinhas = document.getElementById('slider-linhas');
     const linhasLabel = document.getElementById('linhas-label');
+    const sliderUv = document.getElementById('slider-uv');
+    const uvLabel = document.getElementById('uv-label');
+    const sliderBpmAvg = document.getElementById('slider-bpm-avg');
+    const bpmAvgLabel = document.getElementById('bpm-avg-label');
 
     // Canvas
     const canvas = document.getElementById('ecg-canvas');
@@ -66,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pmdData = null;
     let hrCharacteristic = null;
     let batteryUpdateInterval = null; 
+    let bpmUpdateInterval = null;
     let appState = {
         modo: 'ecg',
         streamAtivo: false,
@@ -74,12 +80,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ecg: {
                 larguraTemporal: 10,
                 numLinhas: 5,
+                bpmAveragePeriod: 5,
             }
         },
         ecg: {
             buffer: [],
             rollingBuffer: [], 
             loadedData: null, 
+            recentRRIntervals: [],
             lastFullEcg: {
                 samples: [],
                 timestamp: null
@@ -158,6 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pmdData = null;
         hrCharacteristic = null;
         if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+        if(bpmUpdateInterval) clearInterval(bpmUpdateInterval);
         stopStream();
     }
     
@@ -187,6 +196,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 appState.ecg.needsReset = true;
                 if (!appState.ecg.desenhando) requestAnimationFrame(drawLoop);
+
+                if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
+                bpmUpdateInterval = setInterval(() => {
+                    // Garante que temos dados suficientes para o cálculo
+                    const requiredSamples = appState.config.ecg.bpmAveragePeriod > 0 
+                        ? appState.ecg.sampleRate * appState.config.ecg.bpmAveragePeriod 
+                        : appState.ecg.sampleRate * 2; // Pelo menos 2s para BPM "instantâneo"
+                    
+                    if (appState.ecg.rollingBuffer.length > requiredSamples) {
+                        const bpm = calculateBpmFromEcg(
+                            [...appState.ecg.rollingBuffer], // Usa uma cópia para não interferir no buffer principal
+                            appState.ecg.sampleRate,
+                            appState.config.ecg.bpmAveragePeriod
+                        );
+                        if (bpm !== null) {
+                            bpmDisplayEl.textContent = Math.round(bpm);
+                        } else {
+                            bpmDisplayEl.textContent = '--';
+                        }
+                    }
+                }, 2000); // Calcula a cada 2 segundos
+
                 console.log("✅ Stream ECG iniciado.");
 
             } else if (appState.modo === 'hrppi') {
@@ -204,6 +235,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function stopStream() {
         if (!polarDevice || !appState.streamAtivo) return;
+
+        if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
+        bpmUpdateInterval = null;
+        bpmDisplayEl.textContent = '--';
         
         try {
             if (appState.modo === 'ecg' && pmdControlPoint) {
@@ -226,6 +261,125 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             appState.streamAtivo = false;
         }
+    }
+
+    // --- FUNÇÃO PARA CÁLCULO DE BPM ---
+    function calculateBpmFromEcg(samples, sampleRate, averagingPeriodInSeconds) {
+        if (samples.length < sampleRate) { // Precisa de pelo menos 1s de dados
+            return null;
+        }
+
+        // --- 1. Filtragem (Passa-Banda) ---
+        // Implementação simples de filtros IIR de primeira ordem
+        // Passa-baixa (remove ruído de alta frequência)
+        const lowpassCutoff = 15.0; // Hz
+        const a_lp = Math.exp(-2.0 * Math.PI * lowpassCutoff / sampleRate);
+        let filtered_lp = [samples[0]];
+        for (let i = 1; i < samples.length; i++) {
+            filtered_lp[i] = (1.0 - a_lp) * samples[i] + a_lp * filtered_lp[i - 1];
+        }
+        
+        // Passa-alta (remove deriva da linha de base)
+        const highpassCutoff = 5.0; // Hz
+        const a_hp = Math.exp(-2.0 * Math.PI * highpassCutoff / sampleRate);
+        let filtered_hp = [0];
+        for (let i = 1; i < filtered_lp.length; i++) {
+            filtered_hp[i] = (1 - a_hp) * (filtered_lp[i] - filtered_lp[i-1]) + a_hp * filtered_hp[i-1];
+        }
+
+        // --- 2. Realce do QRS ---
+        // Derivada
+        let derivative = [0];
+        for (let i = 1; i < filtered_hp.length; i++) {
+            derivative[i] = filtered_hp[i] - filtered_hp[i - 1];
+        }
+
+        // Elevação ao quadrado
+        let squared = derivative.map(val => val * val);
+
+        // Integração por Janela Móvel (aprox. 150ms)
+        const windowSize = Math.round(0.150 * sampleRate);
+        let integrated = [];
+        let currentSum = 0;
+        for (let i = 0; i < squared.length; i++) {
+            currentSum += squared[i];
+            if (i >= windowSize) {
+                currentSum -= squared[i - windowSize];
+            }
+            integrated.push(currentSum / windowSize);
+        }
+
+        // --- 3. Detecção de Picos com Limiar Adaptativo ---
+        let r_peaks = [];
+        let signal_peak = 0, noise_peak = 0;
+        let signal_threshold = 0, noise_threshold = 0;
+        const refractory_period = Math.round(0.2 * sampleRate); // 200ms
+
+        for (let i = 0; i < integrated.length; i++) {
+            // Procura por picos locais
+            if (i > 0 && i < integrated.length - 1 && integrated[i] > integrated[i-1] && integrated[i] > integrated[i+1]) {
+                const current_peak = integrated[i];
+                
+                // Inicialização nos primeiros 2 segundos
+                if (r_peaks.length === 0 && i < 2 * sampleRate) {
+                     if(current_peak > noise_peak) noise_peak = current_peak;
+                }
+
+                if (current_peak > signal_threshold) {
+                    // Evita detectar picos muito próximos (período refratário)
+                    if (r_peaks.length === 0 || (i - r_peaks[r_peaks.length - 1]) > refractory_period) {
+                        r_peaks.push(i);
+                        signal_peak = 0.125 * current_peak + 0.875 * signal_peak;
+                    }
+                } else if (current_peak > noise_threshold) {
+                    noise_peak = 0.125 * current_peak + 0.875 * noise_peak;
+                }
+
+                // Atualiza limiares
+                signal_threshold = noise_peak + 0.25 * (signal_peak - noise_peak);
+                noise_threshold = 0.5 * signal_threshold;
+            }
+        }
+        
+        if (r_peaks.length < 2) {
+            return null; // Não há batimentos suficientes para calcular o intervalo
+        }
+
+        // --- 4. Cálculo de BPM ---
+        let rr_intervals = [];
+        for (let i = 1; i < r_peaks.length; i++) {
+            rr_intervals.push(r_peaks[i] - r_peaks[i-1]);
+        }
+
+        // Filtra intervalos RR com base no período de média
+        const samplesToConsider = averagingPeriodInSeconds * sampleRate;
+        let relevant_rr_sum = 0;
+        let relevant_rr_count = 0;
+        let samples_counted = 0;
+
+        // Itera de trás para frente
+        for (let i = rr_intervals.length - 1; i >= 0; i--) {
+            const interval = rr_intervals[i];
+            // Para BPM "instantâneo", pegamos apenas o último intervalo válido
+            if (averagingPeriodInSeconds === 0) {
+                 relevant_rr_sum = interval;
+                 relevant_rr_count = 1;
+                 break;
+            }
+            
+            samples_counted += interval;
+            if (samples_counted > samplesToConsider) break;
+            
+            relevant_rr_sum += interval;
+            relevant_rr_count++;
+        }
+
+        if (relevant_rr_count === 0) return null;
+
+        const avg_rr_samples = relevant_rr_sum / relevant_rr_count;
+        const avg_rr_seconds = avg_rr_samples / sampleRate;
+        
+        return 60.0 / avg_rr_seconds;
     }
 
     // --- FUNÇÃO PARA LER O STATUS DA BATERIA ---
@@ -264,7 +418,10 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.ecg.buffer.push(...newSamples);
         
         appState.ecg.rollingBuffer.push(...newSamples);
-        const maxBufferSize = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
+        const maxBufferSize = Math.max(
+            appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate,
+            appState.config.ecg.bpmAveragePeriod * appState.ecg.sampleRate * 2 // Garante buffer suficiente para cálculo do BPM
+        );
         if (appState.ecg.rollingBuffer.length > maxBufferSize) {
             appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
         }
@@ -344,6 +501,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.displayMode !== 'live') {
             redrawStaticEcg();
         }
+    });
+
+    sliderUv.addEventListener('input', (e) => {
+        appState.ecg.uV_per_div = parseInt(e.target.value);
+        uvLabel.textContent = e.target.value;
+        appState.ecg.needsReset = true;
+        if (appState.displayMode !== 'live') {
+            redrawStaticEcg();
+        }
+    });
+
+    sliderBpmAvg.addEventListener('input', (e) => {
+        const period = parseInt(e.target.value);
+        appState.config.ecg.bpmAveragePeriod = period;
+        bpmAvgLabel.textContent = period === 0 ? 'Inst.' : `${period}s`;
     });
 
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
@@ -812,6 +984,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 drawTimestamp(appState.ecg.startTimestamp);
             }
         });
+
+        const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
+        bpmAvgLabel.textContent = initialBpmPeriod === 0 ? 'Inst.' : `${initialBpmPeriod}s`;
     }
 
     init();

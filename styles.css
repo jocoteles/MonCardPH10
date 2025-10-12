@@ -256,3 +256,32 @@ input[type="range"] {
         flex-basis: 100%;
     }
 }
+
+/* Estilo atualizado para o display de BPM, baseado no .hr-item */
+.bpm-display-container {
+    /* Remove o fundo e as bordas para se integrar ao tema escuro */
+    background-color: transparent;
+    border: none;
+    
+    /* Espaçamento e alinhamento central */
+    padding: 10px 0;
+    margin-top: -10px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+/* Estilo para o valor numérico do BPM, imitando o <p> do .hr-item */
+#bpm-display {
+    font-size: 2rem; /* Tamanho da fonte, igual ao .hr-item p */
+    font-weight: bold; /* Peso da fonte, igual ao .hr-item p */
+    color: var(--ecg-line-color); /* Usa a variável de cor verde, igual ao .hr-item p */
+    line-height: 1;
+}
+
+/* Estilo para a unidade "BPM" */
+.bpm-display-container .bpm-unit {
+    font-size: 1rem;
+    color: #aaa;
+    font-weight: normal;
+    margin-left: 8px; /* Espaço entre o número e a unidade */
+}

@@ -47,6 +47,10 @@
                 <div class="canvas-container">
                     <canvas id="ecg-canvas"></canvas>
                 </div>
+                <div class="bpm-display-container">
+                    <span id="bpm-display">--</span>
+                    <span class="bpm-unit">BPM</span>
+                </div>
                 <div class="ecg-controls">
                     <button id="btn-save-ecg">Salvar ECG Atual</button>
                     <button id="btn-save-png">Salvar PNG</button>
@@ -101,6 +105,12 @@
 
                     <label for="slider-linhas">Número de Linhas: <span id="linhas-label">5</span></label>
                     <input type="range" id="slider-linhas" min="1" max="10" value="5">
+
+                    <label for="slider-uv">Amplitude (µV/div): <span id="uv-label">1000</span></label>
+                    <input type="range" id="slider-uv" min="100" max="3000" step="50" value="1000">
+
+                    <label for="slider-bpm-avg">Período Média BPM: <span id="bpm-avg-label">5
+                    <input type="range" id="slider-bpm-avg" min="0" max="30" value="5">
                 </fieldset>
             </div>
              <div id="config-hrppi" style="display: none;">
