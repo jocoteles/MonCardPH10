@@ -216,3 +216,43 @@ input[type="range"] {
 .disclaimer-buttons button.secondary {
     background-color: #555;
 }
+
+.ecg-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap; /* Permite que os botões quebrem para a próxima linha */
+    gap: 10px; /* Espaçamento consistente entre os botões */
+    margin-bottom: 15px; /* Espaço entre os botões e o canvas */
+    width: 100%;
+}
+
+.ecg-controls button {
+    margin: 0; /* Remove a margem padrão para ter mais controle com 'gap' */
+    padding: 10px 15px; /* Um padding um pouco menor para esses botões */
+    font-size: 0.9rem; /* Uma fonte um pouco menor */
+    flex-grow: 1; /* Permite que os botões cresçam para preencher o espaço */
+    flex-basis: 150px; /* Define uma largura mínima/ideal para cada botão */
+    max-width: 250px; /* Evita que os botões fiquem excessivamente largos */
+}
+
+/* Media Query para telas estreitas (celulares em modo retrato e paisagem) */
+@media (max-width: 768px) {
+    .ecg-controls button {
+        /* 
+           Em telas menores, faz com que cada botão tente ocupar 45% da largura.
+           O cálculo 'calc(50% - 5px)' garante que dois botões caibam lado a lado
+           considerando o 'gap' de 10px. O resultado é um grid 2x2.
+        */
+        flex-basis: calc(50% - 5px);
+    }
+}
+
+/* Media Query para telas muito estreitas (celulares em modo retrato) */
+@media (max-width: 400px) {
+     .ecg-controls button {
+        /* Em telas muito pequenas, faz com que cada botão ocupe 100% da largura,
+           empilhando-os verticalmente para melhor legibilidade e usabilidade. */
+        flex-basis: 100%;
+    }
+}

@@ -47,6 +47,13 @@
                 <div class="canvas-container">
                     <canvas id="ecg-canvas"></canvas>
                 </div>
+                <div class="ecg-controls">
+                    <button id="btn-save-ecg">Salvar ECG Atual</button>
+                    <button id="btn-load-ecg">Carregar ECG</button>
+                    <button id="btn-show-last-ecg">Mostrar Último ECG</button>
+                    <button id="btn-show-live-ecg">Mostrar Aquisição Atual</button>
+                    <input type="file" id="file-input-ecg" accept=".json" style="display: none;">
+                </div>
             </div>
             <div id="modo-hrppi" class="modo-aquisicao">
                 <h2>Dados de Frequência Cardíaca e PPI</h2>
@@ -84,7 +91,7 @@
                 <legend>Status do Dispositivo</legend>
                 <p>Nível da Bateria: <strong id="battery-status-value">Desconectado</strong></p>
             </fieldset>
-            
+
             <div id="config-ecg">
                 <fieldset>
                     <legend>Configurações do Gráfico ECG</legend>

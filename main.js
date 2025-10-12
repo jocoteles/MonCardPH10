@@ -42,6 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Elemento do DOM para a Bateria
     const batteryStatusValueEl = document.getElementById('battery-status-value');
 
+    const btnSaveEcg = document.getElementById('btn-save-ecg');
+    const btnLoadEcg = document.getElementById('btn-load-ecg');
+    const btnShowLastEcg = document.getElementById('btn-show-last-ecg');
+    const btnShowLiveEcg = document.getElementById('btn-show-live-ecg');
+    const fileInputEcg = document.getElementById('file-input-ecg');
+
 
     // --- CONSTANTES BLUETOOTH ---
     const PMD_SERVICE_UUID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
@@ -58,10 +64,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let pmdControlPoint = null;
     let pmdData = null;
     let hrCharacteristic = null;
-    let batteryUpdateInterval = null; // Variável para o timer da bateria
+    let batteryUpdateInterval = null; 
     let appState = {
         modo: 'ecg',
         streamAtivo: false,
+        displayMode: 'live',
         config: {
             ecg: {
                 larguraTemporal: 10,
@@ -70,6 +77,14 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         ecg: {
             buffer: [],
+            rollingBuffer: [], 
+            loadedData: null, 
+            // NOVO ESTADO: Armazena a última varredura completa com seu timestamp
+            lastFullEcg: {
+                samples: [],
+                timestamp: null
+            },
+            startTimestamp: null, // Timestamp da varredura ATUAL
             sampleRate: 130,
             desenhando: false,
             currentX: 0,
@@ -135,14 +150,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onDisconnect() {
         statusConexao.textContent = 'Dispositivo desconectado.';
-        batteryStatusValueEl.textContent = 'Desconectado'; // Atualiza status da bateria na UI
+        batteryStatusValueEl.textContent = 'Desconectado'; 
         btnConectar.textContent = 'Conectar ao Dispositivo';
         btnConectar.disabled = false;
         polarDevice = null;
         pmdControlPoint = null;
         pmdData = null;
         hrCharacteristic = null;
-        if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa o timer
+        if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
         stopStream();
     }
     
@@ -152,9 +167,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             appState.streamAtivo = true;
+            appState.displayMode = 'live';
 
             if (appState.modo === 'ecg') {
                 console.log("▶️ Iniciando stream ECG...");
+                
+                appState.ecg.buffer = [];
+                appState.ecg.rollingBuffer = [];
+                appState.ecg.lastFullEcg = { samples: [], timestamp: null }; // Reseta o último ECG
+                appState.ecg.startTimestamp = new Date();
+
                 await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
                 
@@ -210,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function updateBatteryStatus() {
         if (!polarDevice || !polarDevice.gatt.connected) {
             batteryStatusValueEl.textContent = 'Desconectado';
-            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Para o timer se desconectado
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
             return;
         }
 
@@ -232,10 +254,19 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleEcgData(event) {
         const value = event.target.value;
         const data = new DataView(value.buffer);
+        const newSamples = [];
         
         for (let i = 10; i < data.byteLength; i += 3) {
             const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
-            appState.ecg.buffer.push(rawSample);
+            newSamples.push(rawSample);
+        }
+
+        appState.ecg.buffer.push(...newSamples);
+        
+        appState.ecg.rollingBuffer.push(...newSamples);
+        const maxBufferSize = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
+        if (appState.ecg.rollingBuffer.length > maxBufferSize) {
+            appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
         }
     }
 
@@ -301,12 +332,18 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.config.ecg.larguraTemporal = parseInt(e.target.value);
         larguraLabel.textContent = e.target.value;
         appState.ecg.needsReset = true;
+        if (appState.displayMode !== 'live') {
+            redrawStaticEcg();
+        }
     });
     
     sliderLinhas.addEventListener('input', (e) => {
         appState.config.ecg.numLinhas = parseInt(e.target.value);
         linhasLabel.textContent = e.target.value;
         appState.ecg.needsReset = true;
+        if (appState.displayMode !== 'live') {
+            redrawStaticEcg();
+        }
     });
 
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
@@ -318,6 +355,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
         appState.ecg.needsReset = true;
+
+        if (appState.displayMode !== 'live') {
+            redrawStaticEcg();
+        }
     }
 
     function drawGrid() {
@@ -329,7 +370,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const secs = appState.config.ecg.larguraTemporal;
         const pixelsPerSecond = width / secs;
 
-        // Malha Fina
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 0.5;
         const minorHorizontalStep = lineHeight / 10;
@@ -341,14 +381,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
         }
 
-        // Malha Intermediária
         ctx.strokeStyle = '#cccccc';
         ctx.lineWidth = 0.75;
         for (let x = pixelsPerSecond / 2; x < width; x += pixelsPerSecond) {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
         }
 
-        // Malha Grossa
         ctx.strokeStyle = '#aaaaaa';
         ctx.lineWidth = 1;
         for (let i = 1; i < numLinhas; i++) {
@@ -360,7 +398,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
         }
         
-        // Legenda
         ctx.fillStyle = '#1a1a1a';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'left';
@@ -369,11 +406,43 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillText('1 s/div', 10, height - 10);
     }
     
+    function formatTimestamp(date) {
+        if (!(date instanceof Date) || isNaN(date)) {
+            return { time: 'HH:MM:SS', date: 'DD/MM/AAAA' };
+        }
+        const HH = String(date.getHours()).padStart(2, '0');
+        const MM = String(date.getMinutes()).padStart(2, '0');
+        const SS = String(date.getSeconds()).padStart(2, '0');
+        const DD = String(date.getDate()).padStart(2, '0');
+        const MO = String(date.getMonth() + 1).padStart(2, '0');
+        const YYYY = date.getFullYear();
+        return { time: `${HH}:${MM}:${SS}`, date: `${DD}/${MO}/${YYYY}` };
+    }
+
+    function drawTimestamp(timestamp) {
+        const { time, date } = formatTimestamp(timestamp);
+        const height = canvas.clientHeight;
+        const width = canvas.clientWidth;
+        
+        ctx.fillStyle = '#1a1a1a';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        
+        ctx.fillText(time, width - 10, height - 28);
+        ctx.fillText(date, width - 10, height - 10);
+    }
+
     function drawLoop() {
+        if (appState.displayMode !== 'live' || !appState.streamAtivo) {
+            appState.ecg.desenhando = false;
+            return;
+        }
         appState.ecg.desenhando = true;
 
         if (appState.ecg.needsReset) {
             drawGrid();
+            drawTimestamp(appState.ecg.startTimestamp);
             appState.ecg.currentX = 0;
             appState.ecg.currentLine = 0;
             appState.ecg.lastY = null;
@@ -415,8 +484,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.ecg.lastY = null;
                 
                 if (appState.ecg.currentLine >= appState.config.ecg.numLinhas) {
+                    // PONTO CRÍTICO: Captura a varredura completa antes de reiniciar
+                    appState.ecg.lastFullEcg = {
+                        samples: [...appState.ecg.rollingBuffer], // Copia os dados
+                        timestamp: appState.ecg.startTimestamp    // Associa o timestamp correto
+                    };
+
                     appState.ecg.currentLine = 0;
+                    appState.ecg.startTimestamp = new Date(); // Atualiza o timestamp para a NOVA varredura
                     drawGrid();
+                    drawTimestamp(appState.ecg.startTimestamp);
                 }
                 ctx.beginPath();
                 break;
@@ -425,16 +502,153 @@ document.addEventListener('DOMContentLoaded', () => {
         
         ctx.stroke();
 
-        if (appState.streamAtivo && appState.modo === 'ecg') {
-            requestAnimationFrame(drawLoop);
-        } else {
-            appState.ecg.desenhando = false;
-        }
+        requestAnimationFrame(drawLoop);
     }
 
+    // --- Funções para Salvar, Carregar e Desenhar ECG estático ---
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    function base64ToTypedArray(base64) {
+        const binary_string = window.atob(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return new Int32Array(bytes.buffer);
+    }
+
+    function saveEcgData() {
+        // MUDANÇA: Agora salva a partir do `lastFullEcg` para garantir integridade
+        if (appState.ecg.lastFullEcg.samples.length === 0) {
+            alert("Nenhuma varredura de ECG completa foi gravada para salvar.");
+            return;
+        }
+
+        const samplesToSave = new Int32Array(appState.ecg.lastFullEcg.samples);
+        const saveData = {
+            timestamp: appState.ecg.lastFullEcg.timestamp.toISOString(),
+            sampleRate: appState.ecg.sampleRate,
+            uV_per_div: appState.ecg.uV_per_div,
+            samples_base64: arrayBufferToBase64(samplesToSave.buffer)
+        };
+
+        const jsonString = JSON.stringify(saveData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const filename = `ECG_${appState.ecg.lastFullEcg.timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function loadEcgData(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data.timestamp || !data.samples_base64) {
+                    throw new Error("Formato de arquivo inválido.");
+                }
+                
+                appState.ecg.loadedData = {
+                    samples: base64ToTypedArray(data.samples_base64),
+                    timestamp: new Date(data.timestamp),
+                    sampleRate: data.sampleRate || 130,
+                    uV_per_div: data.uV_per_div || 1000
+                };
+
+                appState.displayMode = 'loaded';
+                redrawStaticEcg();
+
+            } catch (error) {
+                alert(`Erro ao carregar o arquivo: ${error.message}`);
+                console.error(error);
+            }
+        };
+        reader.readAsText(file);
+        fileInputEcg.value = ''; // Permite carregar o mesmo arquivo novamente
+    }
+
+    function redrawStaticEcg() {
+        let data, timestamp;
+
+        // MUDANÇA: Puxa os dados e o timestamp da fonte correta
+        if (appState.displayMode === 'last') {
+            data = appState.ecg.lastFullEcg.samples;
+            timestamp = appState.ecg.lastFullEcg.timestamp;
+        } else if (appState.displayMode === 'loaded' && appState.ecg.loadedData) {
+            data = appState.ecg.loadedData.samples;
+            timestamp = appState.ecg.loadedData.timestamp;
+        } else {
+            return;
+        }
+
+        drawGrid();
+        drawTimestamp(timestamp); // Usa o timestamp associado aos dados!
+        
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const lineHeight = height / appState.config.ecg.numLinhas;
+        const gain = lineHeight / appState.ecg.uV_per_div;
+        const pixelsPerSecond = width / appState.config.ecg.larguraTemporal;
+        const pixelsPerSample = pixelsPerSecond / appState.ecg.sampleRate;
+
+        ctx.strokeStyle = '#0052cc';
+        ctx.lineWidth = 1.5;
+        
+        let currentX = 0;
+        let currentLine = 0;
+        let lastY = null;
+        
+        ctx.beginPath();
+
+        for(const sample of data) {
+            const lineOffsetY = (currentLine * lineHeight) + (lineHeight / 2);
+            const currentY = lineOffsetY - (sample * gain);
+
+            if (lastY === null) {
+                ctx.moveTo(currentX, currentY);
+            } else {
+                ctx.lineTo(currentX, currentY);
+            }
+
+            currentX += pixelsPerSample;
+            lastY = currentY;
+
+            if (currentX >= width) {
+                ctx.stroke(); 
+                currentLine++;
+                currentX = 0;
+                lastY = null;
+                
+                if (currentLine >= appState.config.ecg.numLinhas) {
+                    break; // Para de desenhar se a tela (configurada) estiver cheia
+                }
+                ctx.beginPath();
+            }
+        }
+        ctx.stroke();
+    }
+    
     // --- INICIALIZAÇÃO ---
     function init() {
-        // Lógica do Modal de Aviso
         btnAgree.addEventListener('click', () => {
             disclaimerOverlay.style.display = 'none';
         });
@@ -447,7 +661,6 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         });
         
-        // Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(err => {
                 console.error('Falha no registro do Service Worker:', err);
@@ -460,23 +673,49 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // Gerenciamento de stream e bateria com base na navegação
         menuButtons.aquisicao.addEventListener('click', () => {
              if (polarDevice && !appState.streamAtivo) startStream();
-             if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa timer ao sair da config
+             if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
         });
 
         menuButtons.conexao.addEventListener('click', () => {
             if (polarDevice && appState.streamAtivo) stopStream();
-            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa timer ao sair da config
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
         });
 
         menuButtons.config.addEventListener('click', () => {
             if (polarDevice && appState.streamAtivo) stopStream();
             
-            updateBatteryStatus(); // Chama a função imediatamente ao entrar na aba
-            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa qualquer timer anterior
-            batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); // Define novo timer para 2 minutos (120000 ms)
+            updateBatteryStatus(); 
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+            batteryUpdateInterval = setInterval(updateBatteryStatus, 120000);
+        });
+
+        btnSaveEcg.addEventListener('click', saveEcgData);
+        btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
+        fileInputEcg.addEventListener('change', loadEcgData);
+        
+        btnShowLastEcg.addEventListener('click', () => {
+            // MUDANÇA: Verifica a existência de um ECG completo
+            if (appState.ecg.lastFullEcg.samples.length === 0) {
+                alert("Nenhuma varredura de ECG completa foi gravada ainda.");
+                return;
+            }
+            appState.displayMode = 'last';
+            redrawStaticEcg();
+        });
+
+        btnShowLiveEcg.addEventListener('click', () => {
+            appState.displayMode = 'live';
+            appState.ecg.needsReset = true;
+            appState.ecg.startTimestamp = new Date(); 
+            
+            if (appState.streamAtivo && !appState.ecg.desenhando) {
+                requestAnimationFrame(drawLoop);
+            } else if (!appState.streamAtivo) {
+                drawGrid();
+                drawTimestamp(null);
+            }
         });
     }
 
