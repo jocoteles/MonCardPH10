@@ -263,15 +263,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- FUNÇÃO PARA CÁLCULO DE BPM ---
+    /**
+     * Calcula o Batimento Por Minuto (BPM) a partir de uma amostra de sinal de ECG.
+     * A função implementa um algoritmo robusto inspirado em Pan-Tompkins, que inclui:
+     * 1. Filtragem Passa-Banda para isolar a frequência do complexo QRS.
+     * 2. Realce do QRS através de diferenciação, quadratura e integração.
+     * 3. Detecção de picos R com um limiar adaptativo.
+     * 4. Pós-processamento e validação dos intervalos RR para rejeitar outliers (batidas perdidas/falsas detecções).
+     * 5. Cálculo do BPM final com base em uma média de intervalos validados.
+     *
+     * @param {number[]} samples - Um array de amostras numéricas do sinal de ECG.
+     * @param {number} sampleRate - A taxa de amostragem do sinal em Hz (e.g., 130).
+     * @param {number} averagingPeriodInSeconds - O período (em segundos) para calcular a média de BPM. Se 0, usa uma média estável dos últimos batimentos válidos.
+     * @returns {number|null} O valor do BPM calculado ou null se não for possível calcular.
+     */
     function calculateBpmFromEcg(samples, sampleRate, averagingPeriodInSeconds) {
-        if (samples.length < sampleRate) { // Precisa de pelo menos 1s de dados
+        // Requer pelo menos 2 segundos de dados para uma análise confiável inicial.
+        if (samples.length < sampleRate * 2) { 
             return null;
         }
 
         // --- 1. Filtragem (Passa-Banda) ---
-        // Implementação simples de filtros IIR de primeira ordem
-        // Passa-baixa (remove ruído de alta frequência)
+        // Filtro Passa-Baixa para remover ruído de alta frequência (e.g., muscular).
         const lowpassCutoff = 15.0; // Hz
         const a_lp = Math.exp(-2.0 * Math.PI * lowpassCutoff / sampleRate);
         let filtered_lp = [samples[0]];
@@ -279,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
             filtered_lp[i] = (1.0 - a_lp) * samples[i] + a_lp * filtered_lp[i - 1];
         }
         
-        // Passa-alta (remove deriva da linha de base)
+        // Filtro Passa-Alta para remover a deriva da linha de base (e.g., respiração).
         const highpassCutoff = 5.0; // Hz
         const a_hp = Math.exp(-2.0 * Math.PI * highpassCutoff / sampleRate);
         let filtered_hp = [0];
@@ -287,18 +300,18 @@ document.addEventListener('DOMContentLoaded', () => {
             filtered_hp[i] = (1 - a_hp) * (filtered_lp[i] - filtered_lp[i-1]) + a_hp * filtered_hp[i-1];
         }
 
-        // --- 2. Realce do QRS ---
-        // Derivada
+        // --- 2. Realce do Complexo QRS ---
+        // Derivada: Enfatiza as inclinações íngremes do complexo QRS.
         let derivative = [0];
         for (let i = 1; i < filtered_hp.length; i++) {
             derivative[i] = filtered_hp[i] - filtered_hp[i - 1];
         }
 
-        // Elevação ao quadrado
+        // Elevação ao Quadrado: Torna todos os pontos positivos e amplifica os picos QRS.
         let squared = derivative.map(val => val * val);
 
-        // Integração por Janela Móvel (aprox. 150ms)
-        const windowSize = Math.round(0.150 * sampleRate);
+        // Integração por Janela Móvel: Suaviza o sinal e agrupa a energia do QRS.
+        const windowSize = Math.round(0.150 * sampleRate); // Janela de 150ms
         let integrated = [];
         let currentSum = 0;
         for (let i = 0; i < squared.length; i++) {
@@ -316,59 +329,96 @@ document.addEventListener('DOMContentLoaded', () => {
         const refractory_period = Math.round(0.2 * sampleRate); // 200ms
 
         for (let i = 0; i < integrated.length; i++) {
-            // Procura por picos locais
+            // Encontra um pico local
             if (i > 0 && i < integrated.length - 1 && integrated[i] > integrated[i-1] && integrated[i] > integrated[i+1]) {
                 const current_peak = integrated[i];
                 
-                // Inicialização nos primeiros 2 segundos
+                // Nos primeiros segundos, usa os picos para estimar o nível inicial de ruído.
                 if (r_peaks.length === 0 && i < 2 * sampleRate) {
-                     if(current_peak > noise_peak) noise_peak = current_peak;
+                    if(current_peak > noise_peak) noise_peak = current_peak;
                 }
 
+                // Se o pico atual é um pico de sinal provável...
                 if (current_peak > signal_threshold) {
-                    // Evita detectar picos muito próximos (período refratário)
+                    // ...e não está muito perto do último pico detectado (período refratário)...
                     if (r_peaks.length === 0 || (i - r_peaks[r_peaks.length - 1]) > refractory_period) {
+                        // ...ele é classificado como um pico R.
                         r_peaks.push(i);
+                        // E o nível médio do sinal é atualizado.
                         signal_peak = 0.125 * current_peak + 0.875 * signal_peak;
                     }
                 } else if (current_peak > noise_threshold) {
+                    // Se o pico não é forte o suficiente para ser sinal, é considerado ruído, e o nível de ruído é atualizado.
                     noise_peak = 0.125 * current_peak + 0.875 * noise_peak;
                 }
 
-                // Atualiza limiares
+                // Os limiares de sinal e ruído são ajustados dinamicamente.
                 signal_threshold = noise_peak + 0.25 * (signal_peak - noise_peak);
                 noise_threshold = 0.5 * signal_threshold;
             }
         }
         
+        // Se menos de 2 picos foram encontrados, não é possível calcular um intervalo.
         if (r_peaks.length < 2) {
-            return null; // Não há batimentos suficientes para calcular o intervalo
+            return null;
         }
 
-        // --- 4. Cálculo de BPM ---
-        let rr_intervals = [];
+        // --- 4. PÓS-PROCESSAMENTO E VALIDAÇÃO DOS INTERVALOS RR ---
+        
+        // Calcula os intervalos RR brutos (em número de amostras) a partir dos picos detectados.
+        let raw_rr_intervals = [];
         for (let i = 1; i < r_peaks.length; i++) {
-            rr_intervals.push(r_peaks[i] - r_peaks[i-1]);
+            raw_rr_intervals.push(r_peaks[i] - r_peaks[i-1]);
         }
 
-        // Filtra intervalos RR com base no período de média
+        // Se o buffer de intervalos válidos está vazio, o inicializamos com o primeiro intervalo bruto encontrado.
+        if (appState.ecg.recentRRIntervals.length === 0 && raw_rr_intervals.length > 0) {
+            appState.ecg.recentRRIntervals.push(raw_rr_intervals[0]);
+        }
+
+        // Itera sobre os novos intervalos brutos para validá-los.
+        for (const new_rr of raw_rr_intervals) {
+            // Calcula a média dos últimos intervalos que já foram validados.
+            const recent_rr_avg = appState.ecg.recentRRIntervals.reduce((a, b) => a + b, 0) / appState.ecg.recentRRIntervals.length;
+
+            // Define limites de plausibilidade fisiológica (e.g., não pode variar mais que 40% para baixo ou 60% para cima instantaneamente).
+            const lower_bound = 0.6 * recent_rr_avg;
+            const upper_bound = 1.6 * recent_rr_avg;
+
+            // Se o novo intervalo está dentro dos limites, ele é considerado válido.
+            if (new_rr > lower_bound && new_rr < upper_bound) {
+                appState.ecg.recentRRIntervals.push(new_rr);
+                // Mantém o buffer com no máximo os últimos 8 intervalos válidos.
+                if (appState.ecg.recentRRIntervals.length > 8) {
+                    appState.ecg.recentRRIntervals.shift(); // Remove o mais antigo
+                }
+            }
+            // Se o novo intervalo estiver fora dos limites (outlier), ele é ignorado.
+            // Isso previne que uma "batida perdida" (RR longo) ou "falsa detecção" (RR curto) contamine o cálculo.
+        }
+
+        // --- 5. CÁLCULO FINAL DO BPM ---
+
+        // Pega os intervalos do buffer de validação que correspondem ao período de média solicitado pelo usuário.
         const samplesToConsider = averagingPeriodInSeconds * sampleRate;
         let relevant_rr_sum = 0;
         let relevant_rr_count = 0;
         let samples_counted = 0;
 
-        // Itera de trás para frente
-        for (let i = rr_intervals.length - 1; i >= 0; i--) {
-            const interval = rr_intervals[i];
-            // Para BPM "instantâneo", pegamos apenas o último intervalo válido
+        // Itera de trás para frente sobre os intervalos JÁ VALIDADOS.
+        for (let i = appState.ecg.recentRRIntervals.length - 1; i >= 0; i--) {
+            const interval = appState.ecg.recentRRIntervals[i];
+            
+            // Se o usuário quer BPM "instantâneo" (0s), calculamos a média de todo o buffer validado, o que já fornece um valor estável.
             if (averagingPeriodInSeconds === 0) {
-                 relevant_rr_sum = interval;
-                 relevant_rr_count = 1;
-                 break;
+                relevant_rr_sum = appState.ecg.recentRRIntervals.reduce((a, b) => a + b, 0);
+                relevant_rr_count = appState.ecg.recentRRIntervals.length;
+                break;
             }
             
+            // Soma os intervalos até atingir o período de tempo desejado.
             samples_counted += interval;
-            if (samples_counted > samplesToConsider) break;
+            if (samples_counted > samplesToConsider && relevant_rr_count > 0) break;
             
             relevant_rr_sum += interval;
             relevant_rr_count++;
@@ -376,9 +426,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (relevant_rr_count === 0) return null;
 
+        // Calcula o intervalo RR médio em amostras e depois em segundos.
         const avg_rr_samples = relevant_rr_sum / relevant_rr_count;
         const avg_rr_seconds = avg_rr_samples / sampleRate;
         
+        // Converte o intervalo RR médio em segundos para batimentos por minuto.
         return 60.0 / avg_rr_seconds;
     }
 
