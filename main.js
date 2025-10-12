@@ -39,31 +39,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAgree = document.getElementById('btn-agree');
     const btnDisagree = document.getElementById('btn-disagree');
 
+    // Elemento do DOM para a Bateria
+    const batteryStatusValueEl = document.getElementById('battery-status-value');
+
+
     // --- CONSTANTES BLUETOOTH ---
     const PMD_SERVICE_UUID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_CONTROL_POINT_UUID = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_DATA_MTU_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
     const HR_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb";
     const HR_CHARACTERISTIC_UUID = "00002a37-0000-1000-8000-00805f9b34fb";
+    const BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
+    const BATTERY_CHARACTERISTIC_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
 
 
     // --- ESTADO DA APLICAÇÃO ---
     let polarDevice = null;
     let pmdControlPoint = null;
     let pmdData = null;
-    let hrCharacteristic = null; // Característica específica para HR/PPI
+    let hrCharacteristic = null;
+    let batteryUpdateInterval = null; // Variável para o timer da bateria
     let appState = {
-        modo: 'ecg', // 'ecg' ou 'hrppi'
+        modo: 'ecg',
         streamAtivo: false,
         config: {
             ecg: {
-                larguraTemporal: 10, // segundos
+                larguraTemporal: 10,
                 numLinhas: 5,
             }
         },
         ecg: {
             buffer: [],
-            sampleRate: 130, // Hz
+            sampleRate: 130,
             desenhando: false,
             currentX: 0,
             currentLine: 0,
@@ -94,24 +101,19 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             statusConexao.textContent = 'Procurando dispositivo...';
             
-            // Solicita o dispositivo com acesso opcional a ambos os serviços
             polarDevice = await navigator.bluetooth.requestDevice({
-                filters: [
-                    { namePrefix: 'Polar H10' }
-                ],
-                optionalServices: [PMD_SERVICE_UUID, HR_SERVICE_UUID]
+                filters: [{ namePrefix: 'Polar H10' }],
+                optionalServices: [PMD_SERVICE_UUID, HR_SERVICE_UUID, BATTERY_SERVICE_UUID]
             });
 
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
             const server = await polarDevice.gatt.connect();
             
             statusConexao.textContent = 'Obtendo serviços e características...';
-            // Obtém características PMD para ECG
             const pmdService = await server.getPrimaryService(PMD_SERVICE_UUID);
             pmdControlPoint = await pmdService.getCharacteristic(PMD_CONTROL_POINT_UUID);
             pmdData = await pmdService.getCharacteristic(PMD_DATA_MTU_UUID);
 
-            // Obtém característica de HR para HR/PPI
             const hrService = await server.getPrimaryService(HR_SERVICE_UUID);
             hrCharacteristic = await hrService.getCharacteristic(HR_CHARACTERISTIC_UUID);
 
@@ -123,7 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             if (error.name === 'NotFoundError') {
-                console.log('Busca de dispositivo cancelada pelo usuário.');
                 statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
             } else {
                 console.error('Erro na conexão Bluetooth:', error);
@@ -134,16 +135,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onDisconnect() {
         statusConexao.textContent = 'Dispositivo desconectado.';
+        batteryStatusValueEl.textContent = 'Desconectado'; // Atualiza status da bateria na UI
         btnConectar.textContent = 'Conectar ao Dispositivo';
         btnConectar.disabled = false;
         polarDevice = null;
         pmdControlPoint = null;
         pmdData = null;
         hrCharacteristic = null;
-        stopStream(); // Garante que o estado seja limpo
+        if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa o timer
+        stopStream();
     }
     
-    // --- LÓGICA DE CONTROLE DE STREAM (UNIFICADA) ---
+    // --- LÓGICA DE CONTROLE DE STREAM ---
     async function startStream() {
         if (!polarDevice || !polarDevice.gatt.connected || appState.streamAtivo) return;
 
@@ -152,14 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (appState.modo === 'ecg') {
                 console.log("▶️ Iniciando stream ECG...");
-                if (!pmdControlPoint || !pmdData) {
-                    throw new Error("Características PMD não estão disponíveis.");
-                }
-                
                 await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
                 
-                // Comando para iniciar ECG
                 const startEcgCommand = new Uint8Array([
                     0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
                 ]);
@@ -171,10 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } else if (appState.modo === 'hrppi') {
                 console.log("▶️ Iniciando stream HR/PPI...");
-                if (!hrCharacteristic) {
-                    throw new Error("Característica de HR não está disponível.");
-                }
-
                 await hrCharacteristic.startNotifications();
                 hrCharacteristic.addEventListener('characteristicvaluechanged', handlePpiData);
                 console.log("✅ Stream HR/PPI iniciado.");
@@ -194,7 +188,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log("🛑 Parando stream ECG...");
                 await pmdData.stopNotifications();
                 pmdData.removeEventListener('characteristicvaluechanged', handleEcgData);
-                // Comando para parar ECG
                 await pmdControlPoint.writeValue(new Uint8Array([0x03, 0x00]));
                 console.log("⏹️ Stream ECG parado.");
 
@@ -205,7 +198,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log("⏹️ Stream HR/PPI parado.");
             }
         } catch (error) {
-            // Ignora erros de "GATT operation already in progress" que podem ocorrer em trocas rápidas
             if (error.name !== 'NetworkError') {
                  console.error("Erro ao parar stream:", error);
             }
@@ -214,16 +206,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- FUNÇÃO PARA LER O STATUS DA BATERIA ---
+    async function updateBatteryStatus() {
+        if (!polarDevice || !polarDevice.gatt.connected) {
+            batteryStatusValueEl.textContent = 'Desconectado';
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Para o timer se desconectado
+            return;
+        }
+
+        try {
+            batteryStatusValueEl.textContent = 'Lendo...';
+            const batteryService = await polarDevice.gatt.getPrimaryService(BATTERY_SERVICE_UUID);
+            const batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+            const batteryValue = await batteryCharacteristic.readValue();
+            const batteryPercent = batteryValue.getUint8(0);
+            batteryStatusValueEl.textContent = `${batteryPercent}%`;
+        } catch (error) {
+            console.error("Erro ao ler nível da bateria:", error);
+            batteryStatusValueEl.textContent = 'Erro ao ler';
+        }
+    }
+
+
     // --- HANDLERS DE DADOS ---
     function handleEcgData(event) {
         const value = event.target.value;
         const data = new DataView(value.buffer);
         
-        // O loop agora usa o valor bruto diretamente, como na versão HR/PPI.
         for (let i = 10; i < data.byteLength; i += 3) {
-            // Lê o valor de 24 bits com sinal diretamente do buffer.
-            const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);            
-            // Adiciona o valor bruto ao buffer, sem aplicar o fator de escala para µV.
+            const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
             appState.ecg.buffer.push(rawSample);
         }
     }
@@ -244,15 +255,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rrIntervalsPresent) {
             while (index < data.byteLength) {
                 const rr = data.getUint16(index, true);
-                ppiValues.push(Math.round((rr / 1024) * 1000)); // Converte para ms
+                ppiValues.push(Math.round((rr / 1024) * 1000));
                 index += 2;
             }
         }
 
         hrValueEl.textContent = hr;
         ppiValueEl.textContent = ppiValues.length > 0 ? ppiValues.join(', ') : '--';
-        ppiErrorValueEl.textContent = '--'; // O serviço padrão não fornece erro estimado
-        ppiFlagsValueEl.textContent = 'OK'; // O serviço padrão não fornece flags de contato
+        ppiErrorValueEl.textContent = '--';
+        ppiFlagsValueEl.textContent = 'OK';
     }
     
     // --- LÓGICA DE CONFIGURAÇÃO E UI ---
@@ -304,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reseta transformações
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
         appState.ecg.needsReset = true;
     }
@@ -354,7 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height - 28);
+        ctx.fillText(`${appState.ecg.uV_per_div} units/div`, 10, height - 28);
         ctx.fillText('1 s/div', 10, height - 10);
     }
     
@@ -398,16 +409,16 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.ecg.lastY = currentY;
 
             if (appState.ecg.currentX >= width) {
-                ctx.stroke(); // Finaliza o traço atual antes de mudar de linha
+                ctx.stroke();
                 appState.ecg.currentLine++;
                 appState.ecg.currentX = 0;
                 appState.ecg.lastY = null;
                 
                 if (appState.ecg.currentLine >= appState.config.ecg.numLinhas) {
                     appState.ecg.currentLine = 0;
-                    drawGrid(); // Limpa e redesenha a grade para o novo ciclo
+                    drawGrid();
                 }
-                ctx.beginPath(); // Inicia um novo traço na nova posição
+                ctx.beginPath();
                 break;
             }
         }
@@ -449,14 +460,23 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // Gerenciamento do stream com base na navegação
+        // Gerenciamento de stream e bateria com base na navegação
         menuButtons.aquisicao.addEventListener('click', () => {
              if (polarDevice && !appState.streamAtivo) startStream();
+             if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa timer ao sair da config
         });
-        [menuButtons.conexao, menuButtons.config].forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (polarDevice && appState.streamAtivo) stopStream();
-            });
+
+        menuButtons.conexao.addEventListener('click', () => {
+            if (polarDevice && appState.streamAtivo) stopStream();
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa timer ao sair da config
+        });
+
+        menuButtons.config.addEventListener('click', () => {
+            if (polarDevice && appState.streamAtivo) stopStream();
+            
+            updateBatteryStatus(); // Chama a função imediatamente ao entrar na aba
+            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); // Limpa qualquer timer anterior
+            batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); // Define novo timer para 2 minutos (120000 ms)
         });
     }
 
