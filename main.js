@@ -133,7 +133,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 filters: [
                     { namePrefix: 'Polar H10' }
                 ],
-                optionalServices: [PMD_SERVICE_UUID]
+                optionalServices: [
+                    // PMD (usado para ECG)
+                    'fb005c80-02e7-f387-1cad-8acd2d8df0c8',
+                    // Serviço padrão de frequência cardíaca (HR/PPI)
+                    '0000180d-0000-1000-8000-00805f9b34fb'
+                ]
             });
 
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
@@ -170,61 +175,116 @@ document.addEventListener('DOMContentLoaded', () => {
         polarDevice = null;
         stopStream();
     }
-    
-    // --- LÓGICA DE CONTROLE DE STREAM ---
 
-    // 🧠 Fator de conversão fixo (conforme documentação Polar Measurement Data, seção 4.2.2)
+    // --- LÓGICA DE CONTROLE DE STREAM COM KEEP-ALIVE ---
+
+    // Fator de conversão fixo (conforme documentação Polar Measurement Data, seção 4.2.2)
     // Cada unidade digital equivale a 1 µV.
     const MICROVOLTS_PER_UNIT = 1.0;
 
+    let keepAliveTimer = null;
+
     async function startStream() {
-        if (!polarDevice || !pmdControlPoint || appState.streamAtivo) return;
+        if (!polarDevice || appState.streamAtivo) return;
 
         try {
             appState.streamAtivo = true;
 
-            // Ativa notificações antes de iniciar o stream
-            pmdData.addEventListener('characteristicvaluechanged', handlePmdDataNotification);
-            await pmdData.startNotifications();
-
             if (appState.modo === 'ecg') {
-                console.log("▶️ Iniciando stream ECG (modo fixo, fator 1 µV/unidade)");
+                console.log("▶️ Iniciando stream ECG (via serviço PMD)");
 
-                // Comando padrão de start ECG (online measurement)
-                const startEcgCommand = new Uint8Array([
-                    0x02, // Request measurement start
-                    0x00, // Measurement type: ECG
-                    0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00
-                ]);
-                await pmdControlPoint.writeValue(startEcgCommand);
+                // Serviço PMD
+                const pmdService = await polarDevice.gatt.getPrimaryService("fb005c80-02e7-f387-1cad-8acd2d8df0c8");
+                const pmdControlPoint = await pmdService.getCharacteristic("fb005c81-02e7-f387-1cad-8acd2d8df0c8");
+                const pmdData = await pmdService.getCharacteristic("fb005c82-02e7-f387-1cad-8acd2d8df0c8");
+
+                // Listener de notificações
+                pmdData.addEventListener('characteristicvaluechanged', handlePmdDataNotification);
+                await pmdData.startNotifications();
+
+                // Inicia stream ECG (0x02 start, 0x00 online, 0x00 ECG)
+                await pmdControlPoint.writeValue(new Uint8Array([0x02, 0x00, 0x00]));
 
                 appState.ecg.needsReset = true;
                 if (!appState.ecg.desenhando) requestAnimationFrame(drawLoop);
+
+                console.log("✅ Stream ECG iniciado com sucesso.");
             }
 
             else if (appState.modo === 'hrppi') {
-                console.log("▶️ Iniciando stream HR/PPI");
-                await pmdControlPoint.writeValue(new Uint8Array([0x02, 0x03]));
+                console.log("▶️ Iniciando stream HR/PPI (via serviço padrão 0x180D)");
+
+                // Serviço padrão de frequência cardíaca
+                const hrService = await polarDevice.gatt.getPrimaryService("0000180d-0000-1000-8000-00805f9b34fb");
+                const hrChar = await hrService.getCharacteristic("00002a37-0000-1000-8000-00805f9b34fb");
+
+                await hrChar.startNotifications();
+
+                hrChar.addEventListener("characteristicvaluechanged", (event) => {
+                    const data = event.target.value;
+                    const flags = data.getUint8(0);
+                    const hrValue16Bits = flags & 0x01;
+                    let index = 1;
+                    let heartRate = 0;
+
+                    if (hrValue16Bits) {
+                        heartRate = data.getUint16(index, true);
+                        index += 2;
+                    } else {
+                        heartRate = data.getUint8(index);
+                        index += 1;
+                    }
+
+                    // PPI (RR interval)
+                    let rrInterval = null;
+                    if (flags & 0x10) {
+                        rrInterval = data.getUint16(index, true);
+                    }
+
+                    // Atualiza UI
+                    hrValueEl.textContent = heartRate;
+                    ppiValueEl.textContent = rrInterval ? rrInterval : "--";
+                    ppiErrorValueEl.textContent = "--";
+                    ppiFlagsValueEl.textContent = "OK";
+                });
+
+                console.log("✅ Stream HR/PPI ativo via serviço 0x180D.");
             }
+
         } catch (error) {
-            console.error("Erro ao iniciar stream:", error);
+            console.error("❌ Erro ao iniciar stream:", error);
             appState.streamAtivo = false;
+
+            if (polarDevice && !polarDevice.gatt.connected) {
+                console.warn("🔌 Dispositivo desconectado, limpando estado.");
+                polarDevice = null;
+            }
         }
     }
 
     async function stopStream() {
         if (!polarDevice || !pmdControlPoint || !appState.streamAtivo) return;
-        
+
         try {
             const measurementType = appState.modo === 'ecg' ? 0x00 : 0x03;
             await pmdControlPoint.writeValue(new Uint8Array([0x03, measurementType]));
 
             await pmdData.stopNotifications();
             pmdData.removeEventListener('characteristicvaluechanged', handlePmdDataNotification);
+            console.log("🛑 Stream encerrado corretamente.");
         } catch (error) {
             console.error("Erro ao parar stream:", error);
         } finally {
+            stopKeepAlive();
             appState.streamAtivo = false;
+        }
+    }
+
+    // --- Função auxiliar para limpar o keep-alive ---
+    function stopKeepAlive() {
+        if (keepAliveTimer) {
+            clearInterval(keepAliveTimer);
+            keepAliveTimer = null;
         }
     }
 
@@ -380,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- NÍVEL 3: Malha Grossa (Major Grid) ---
         ctx.strokeStyle = '#aaaaaa'; // Cinza escuro
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5;
 
         // Linhas Horizontais Grossas
         for (let i = 1; i < numLinhas; i++) {

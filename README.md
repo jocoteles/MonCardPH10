@@ -14,7 +14,7 @@
 
 ## Sobre o Projeto
 
-Este é um Progressive Web App (PWA) de código aberto que se conecta ao monitor cardíaco **Polar H10** utilizando a **API Web Bluetooth**. A aplicação permite a visualização em tempo real de dados de Eletrocardiograma (ECG) e Frequência Cardíaca/Intervalo Pico a Pico (HR/PPI).
+[Este software](https://jocoteles.github.io/MonCardPH10/) é um Progressive Web App (PWA) de código aberto que se conecta ao monitor cardíaco **Polar H10** utilizando a **API Web Bluetooth**. A aplicação permite a visualização em tempo real de dados de Eletrocardiograma (ECG) e Frequência Cardíaca/Intervalo Pico a Pico (HR/PPI).
 
 O projeto foi desenvolvido com uma filosofia pragmática, privilegiando a clareza do código e a performance, sendo implementado em JavaScript puro, sem o uso de frameworks.
 
