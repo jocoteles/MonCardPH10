@@ -771,13 +771,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
         });
 
-        menuButtons.config.addEventListener('click', () => {
-            if (polarDevice && appState.streamAtivo) stopStream();
-            
-            updateBatteryStatus(); 
-            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+        menuButtons.config.addEventListener('click', async () => {
+            if (polarDevice && appState.streamAtivo) await stopStream();
+
+            if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+            await updateBatteryStatus(); // primeira leitura só depois do stop completar
             batteryUpdateInterval = setInterval(updateBatteryStatus, 120000);
         });
+
 
         btnSaveEcg.addEventListener('click', saveEcgData);
         btnSavePng.addEventListener('click', saveCanvasAsPng);
