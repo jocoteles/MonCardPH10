@@ -480,6 +480,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Funções de Salvar e Carregar --- (Sem alterações)
     function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
     function base64ToTypedArray(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return new Int32Array(bytes.buffer); }
+    function getLocalIsoString(dateInput) {
+        const date = dateInput || new Date();
+        const pad = (n) => n.toString().padStart(2, '0');
+        return date.getFullYear() +
+            '-' + pad(date.getMonth() + 1) +
+            '-' + pad(date.getDate()) +
+            'T' + pad(date.getHours()) +
+            ':' + pad(date.getMinutes()) +
+            ':' + pad(date.getSeconds());
+    }
     function getCurrentDisplayData() {
         switch (appState.displayMode) {
             case 'live': return { samples: appState.ecg.rollingBuffer, timestamp: appState.ecg.startTimestamp };
@@ -492,17 +502,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function saveEcgData() {
         const dataToSave = getCurrentDisplayData();
-        if (!dataToSave || !dataToSave.samples || dataToSave.samples.length === 0) { alert("Não há dados de ECG visíveis na tela para salvar."); return; }
+        if (!dataToSave || !dataToSave.samples || dataToSave.samples.length === 0) { alert("Não há dados..."); return; }
         const samplesToSave = new Int32Array(dataToSave.samples);
-        const saveData = { timestamp: dataToSave.timestamp.toISOString(), sampleRate: appState.ecg.sampleRate, uV_per_div: appState.ecg.uV_per_div, samples_base64: arrayBufferToBase64(samplesToSave.buffer) };
+        const localTimestampStr = getLocalIsoString(dataToSave.timestamp);
+        const saveData = { 
+            timestamp: localTimestampStr,
+            sampleRate: appState.ecg.sampleRate, 
+            uV_per_div: appState.ecg.uV_per_div, 
+            samples_base64: arrayBufferToBase64(samplesToSave.buffer) 
+        };
         const jsonString = JSON.stringify(saveData, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `ECG_${dataToSave.timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
+        const a = document.createElement('a'); 
+        a.href = url; 
+        a.download = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     }
     function saveCanvasAsPng() {
-        const currentData = getCurrentDisplayData(); const timestamp = currentData.timestamp || new Date(); const filename = `ECG-PNG_${timestamp.toISOString().replace(/[:.]/g, '-')}.png`;
+        const currentData = getCurrentDisplayData(); 
+        const timestamp = currentData.timestamp || new Date(); 
+        const localTimestampStr = getLocalIsoString(timestamp);
+        const filename = `ECG-PNG_${localTimestampStr.replace(/[:T]/g, '-')}.png`;
         const tempCanvas = document.createElement('canvas'); tempCanvas.width = canvas.width; tempCanvas.height = canvas.height; const tempCtx = tempCanvas.getContext('2d');
         tempCtx.fillStyle = '#ffffff'; tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height); tempCtx.drawImage(canvas, 0, 0);
         const link = document.createElement('a'); link.download = filename; link.href = tempCanvas.toDataURL('image/png');
@@ -673,10 +694,16 @@ document.addEventListener('DOMContentLoaded', () => {
          if (!appState.autoRecord.active || !appState.autoRecord.saveEcg || !appState.autoRecord.directoryHandle || !ecgData || ecgData.samples.length === 0) { return; }
         try {
             const timestamp = ecgData.timestamp;
-            const filename = `ECG_${timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
+            const localTimestampStr = getLocalIsoString(timestamp);
+            const filename = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
             const fileHandle = await appState.autoRecord.directoryHandle.getFileHandle(filename, { create: true });
             const samplesToSave = new Int32Array(ecgData.samples);
-            const saveData = { timestamp: timestamp.toISOString(), sampleRate: appState.ecg.sampleRate, uV_per_div: appState.ecg.uV_per_div, samples_base64: arrayBufferToBase64(samplesToSave.buffer) };
+            const saveData = { 
+                timestamp: localTimestampStr,
+                sampleRate: appState.ecg.sampleRate, 
+                uV_per_div: appState.ecg.uV_per_div, 
+                samples_base64: arrayBufferToBase64(samplesToSave.buffer) 
+            };
             const jsonString = JSON.stringify(saveData, null, 2);
             const writable = await fileHandle.createWritable();
             await writable.write(jsonString);
@@ -695,7 +722,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bpmValue = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
         if (bpmValue === null) { return; }
         try {
-            const timestamp = new Date().toISOString();
+            const timestamp = getLocalIsoString(new Date());
             const roundedBpm = Math.round(bpmValue);
             const line = `${timestamp},${roundedBpm}\n`;
             const writable = await appState.autoRecord.bpmFileHandle.createWritable({ keepExistingData: true });
