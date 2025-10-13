@@ -14,8 +14,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const ppiFlagsValueEl = document.getElementById('ppi-flags-value');
     const bpmDisplayEl = document.getElementById('bpm-display');
     const radioModo = document.querySelectorAll('input[name="modo"]');
-    const configEcgDiv = document.getElementById('config-ecg');
-    const configHrppiDiv = document.getElementById('config-hrppi');
     const sliderLargura = document.getElementById('slider-largura');
     const larguraLabel = document.getElementById('largura-label');
     const sliderLinhas = document.getElementById('slider-linhas');
@@ -339,9 +337,9 @@ document.addEventListener('DOMContentLoaded', () => {
         hrValueEl.textContent = hr; ppiValueEl.textContent = ppiValues.length > 0 ? ppiValues.join(', ') : '--'; ppiErrorValueEl.textContent = '--'; ppiFlagsValueEl.textContent = 'OK';
     }
     
-    // --- LÓGICA DE CONFIGURAÇÃO E UI --- (Sem alterações)
+    // --- LÓGICA DE CONFIGURAÇÃO E UI ---
     function updateUiForMode() {
-        if (appState.modo === 'ecg') { modoEcgView.style.display = 'block'; modoHrppiView.style.display = 'none'; configEcgDiv.style.display = 'block'; configHrppiDiv.style.display = 'none'; } else { modoEcgView.style.display = 'none'; modoHrppiView.style.display = 'block'; configEcgDiv.style.display = 'none'; configHrppiDiv.style.display = 'block'; }
+        if (appState.modo === 'ecg') { modoEcgView.style.display = 'block'; modoHrppiView.style.display = 'none'; } else { modoEcgView.style.display = 'none'; modoHrppiView.style.display = 'block'; }
     }
     radioModo.forEach(radio => {
         radio.addEventListener('change', async (e) => {
@@ -531,8 +529,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(err => { console.error('Falha no registro do Service Worker:', err); }); }
         changeView('conexao'); updateUiForMode(); window.addEventListener('resize', resizeCanvas); resizeCanvas();
         menuButtons.aquisicao.addEventListener('click', () => { if (polarDevice && !appState.streamAtivo) startStream(); if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); });
-        menuButtons.conexao.addEventListener('click', () => { if (polarDevice && appState.streamAtivo) stopStream(); if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); });
-        menuButtons.config.addEventListener('click', async () => { if (polarDevice && appState.streamAtivo) await stopStream(); if (batteryUpdateInterval) clearInterval(batteryUpdateInterval); await updateBatteryStatus(); batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); });
+        menuButtons.conexao.addEventListener('click', () => { if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) stopStream(); if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); });
+        menuButtons.config.addEventListener('click', async () => { if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) await stopStream(); if (batteryUpdateInterval) clearInterval(batteryUpdateInterval); await updateBatteryStatus(); batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); });
         btnSaveEcg.addEventListener('click', saveEcgData);
         btnSavePng.addEventListener('click', saveCanvasAsPng);
         btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
@@ -621,7 +619,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function stopAutoRecording() {
+    async function stopAutoRecording() {
+        if (appState.streamAtivo) {
+            await stopStream();
+        }
         if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
         appState.autoRecord = { 
             active: false,
@@ -639,8 +640,12 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('🛑 Gravação automática interrompida.');
     }
 
-    function handleAutoRecordToggle() {
-        if (appState.autoRecord.active) { stopAutoRecording(); } else { startAutoRecording(); }
+    async function handleAutoRecordToggle() {
+        if (appState.autoRecord.active) {
+            await stopAutoRecording();
+        } else {
+            await startAutoRecording();
+        }
     }
 
     async function autoSaveEcgScan(ecgData) {
