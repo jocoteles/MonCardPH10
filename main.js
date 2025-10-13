@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
             directoryHandle: null,
             bpmFileHandle: null,
             bpmLogInterval: null,
+            autoSaveInterval: null,
             lastSaveTimestamp: 0,
             saveEcg: true,
             saveBpm: true,
@@ -78,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
             buffer: [],
             rollingBuffer: [], 
             scanBuffer: [],
+            autoSaveBuffer: [],
             loadedData: null, 
             recentRRIntervals: [],
             lastFullEcg: {
@@ -317,6 +319,10 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.ecg.buffer.push(...newSamples);
         appState.ecg.rollingBuffer.push(...newSamples);
         appState.ecg.scanBuffer.push(...newSamples);
+
+        if (appState.autoRecord.active && appState.autoRecord.saveEcg) {
+            appState.ecg.autoSaveBuffer.push(...newSamples);
+        }
         const maxBufferSize = Math.max(appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod * appState.config.ecg.sampleRate * 2);
         if (appState.ecg.rollingBuffer.length > maxBufferSize) {
             appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
@@ -439,16 +445,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         timestamp: appState.ecg.startTimestamp 
                     };
 
-                    if (appState.autoRecord.active) {
-                        const now = Date.now();
-                        const scanDurationMs = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * 1000;
-                        // THROTTLE RESTAURADO: Só salva se o tempo real decorrido for suficiente
-                        if (now - appState.autoRecord.lastSaveTimestamp > scanDurationMs * 0.9) {
-                            appState.autoRecord.lastSaveTimestamp = now;
-                            autoSaveEcgScan({ ...appState.ecg.lastFullEcg });
-                        }
-                    }
-
                     appState.ecg.currentLine = 0;
                     appState.ecg.startTimestamp = new Date();
                     drawGrid();
@@ -461,6 +457,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         ctx.stroke();
         requestAnimationFrame(drawLoop);
+    }
+
+    function startAutoSaveInterval() {
+        if (appState.autoRecord.autoSaveInterval) { clearInterval(appState.autoRecord.autoSaveInterval); }
+        if (!appState.autoRecord.active || !appState.autoRecord.saveEcg) return;
+
+        appState.autoRecord.autoSaveInterval = setInterval(() => {
+            const samplesPerScan = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
+            
+            if (appState.ecg.autoSaveBuffer.length >= samplesPerScan) {
+                const samplesToSave = appState.ecg.autoSaveBuffer.splice(0, samplesPerScan);
+                const scanDurationMs = (samplesPerScan / appState.ecg.sampleRate) * 1000;
+                const timestamp = new Date(Date.now() - scanDurationMs);
+
+                console.log(`Salvando scan de ECG em background...`);
+                autoSaveEcgScan({ samples: samplesToSave, timestamp: timestamp });
+            }
+        }, 2000); 
     }
     
     // --- Funções de Salvar e Carregar --- (Sem alterações)
@@ -593,6 +607,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAutoRecord.classList.add('recording');
             btnAutoRecord.textContent = 'Interromper Gravação Automática';
             
+            appState.ecg.autoSaveBuffer = []; // Limpa o buffer antes de começar
+            startAutoSaveInterval();
+
             if (!appState.streamAtivo) {
                 console.log("Iniciando stream de dados para gravação automática...");
                 if (appState.modo !== 'ecg') {
@@ -622,6 +639,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function stopAutoRecording() {
         if (appState.streamAtivo) {
             await stopStream();
+        }
+        if (appState.autoRecord.autoSaveInterval) {
+            clearInterval(appState.autoRecord.autoSaveInterval);
+            appState.autoRecord.autoSaveInterval = null;
         }
         if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
         appState.autoRecord = { 
