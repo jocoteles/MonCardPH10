@@ -1,4 +1,4 @@
-const CACHE_NAME = 'moncardph10-v1';
+const CACHE_NAME = 'moncardph10-v1.1';
 const urlsToCache = [
   '/',
   '/index.html',

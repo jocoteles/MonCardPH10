@@ -1,6 +1,6 @@
 {
   "name": "Monitor Cardíaco Polar H10",
-  "short_name": "MonCardPH10",
+  "short_name": "MonCard",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#1a1a1a",

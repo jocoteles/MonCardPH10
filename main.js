@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 samples: [],
                 timestamp: null
             },
+            lastSuccessfulBpmTimestamp: null,
             startTimestamp: null,
             sampleRate: 130,
             desenhando: false,
@@ -253,6 +254,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     requestAnimationFrame(drawLoop);
                 }
                 
+                // Inicia o timer do watchdog de BPM assim que o stream começa.
+                appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
+
                 if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
                 bpmUpdateInterval = setInterval(() => {
                     const requiredSamples = appState.config.ecg.bpmAveragePeriod > 0 
@@ -261,7 +265,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (appState.ecg.rollingBuffer.length > requiredSamples) {
                         const bpm = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
-                        bpmDisplayEl.textContent = (bpm !== null) ? Math.round(bpm) : '--';
+
+                        if (bpm !== null) {
+                            // SUCESSO: O BPM foi calculado.
+                            bpmDisplayEl.textContent = Math.round(bpm);
+                            // Reinicia o timer do watchdog, pois tivemos sucesso.
+                            appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
+                        } else {
+                            // FALHA: O BPM não foi encontrado nesta janela.
+                            bpmDisplayEl.textContent = '--';
+                            const TIMEOUT_DURATION_MS = 5000; // 5 segundos
+
+                            // Verifica se o tempo desde o último sucesso excedeu o limite.
+                            if (Date.now() - appState.ecg.lastSuccessfulBpmTimestamp > TIMEOUT_DURATION_MS) {
+                                console.warn("Sinal de BPM não detectado por mais de 5 segundos. Resetando estado do algoritmo.");
+                                
+                                // Ação de RESET: Limpa o histórico e o buffer de análise.
+                                appState.ecg.recentRRIntervals = [];
+                                appState.ecg.rollingBuffer = [];
+                                
+                                // Reinicia o timer para dar mais 5 segundos para encontrar um novo sinal.
+                                appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
+                            }
+                        }
                     }
                 }, 2000);
 
@@ -382,7 +408,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function calculateBpmFromEcg(samples, sampleRate, averagingPeriodInSeconds) {
         if (samples.length < sampleRate * 2) return null;
         
-        // ... (o corpo do algoritmo permanece inalterado)
         const lowpassCutoff = 15.0;
         const a_lp = Math.exp(-2.0 * Math.PI * lowpassCutoff / sampleRate);
         let filtered_lp = [samples[0]];
