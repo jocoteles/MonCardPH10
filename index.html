@@ -114,7 +114,16 @@
                 </fieldset>
                 <fieldset>
                     <legend>Gravação Automática</legend>
-                    <button id="btn-auto-record">Iniciar Gravação Automática</button>
+                    <button id="btn-auto-record">Iniciar Gravação</button>
+                    <div class="recording-options">
+                        <label>
+                            <input type="checkbox" id="chk-save-ecg" name="save-type" value="ecg" checked>
+                            ECG completo (.json)
+                        </label>
+                        <label>
+                            <input type="checkbox" id="chk-save-bpm" name="save-type" value="bpm" checked>
+                            Frequência cardíaca (.csv)
+                        </label>
                 </fieldset>
             </div>
              <div id="config-hrppi" style="display: none;">

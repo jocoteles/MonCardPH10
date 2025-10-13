@@ -304,3 +304,26 @@ input[type="range"] {
 #btn-auto-record.recording:hover {
     background-color: #a71d2a;
 }
+
+.recording-options {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--grid-color-light);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start; /* Alinha os itens à esquerda */
+    gap: 10px; /* Espaço entre os checkboxes */
+}
+
+.recording-options label {
+    display: flex; /* Alinha o checkbox com o texto */
+    align-items: center;
+    cursor: pointer;
+    margin: 0; /* Remove margem padrão do label */
+}
+
+.recording-options input[type="checkbox"] {
+    margin-right: 8px; /* Espaço entre o checkbox e o texto */
+    width: 16px; /* Define um tamanho consistente */
+    height: 16px;
+}

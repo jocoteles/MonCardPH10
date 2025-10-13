@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sliderBpmAvg = document.getElementById('slider-bpm-avg');
     const bpmAvgLabel = document.getElementById('bpm-avg-label');
     const btnAutoRecord = document.getElementById('btn-auto-record');
+    const chkSaveEcg = document.getElementById('chk-save-ecg'); // NOVO
+    const chkSaveBpm = document.getElementById('chk-save-bpm');
     const canvas = document.getElementById('ecg-canvas');
     const ctx = canvas.getContext('2d');
     const disclaimerOverlay = document.getElementById('disclaimer-overlay');
@@ -64,6 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
             bpmFileHandle: null,
             bpmLogInterval: null,
             lastSaveTimestamp: 0,
+            saveEcg: true,
+            saveBpm: true,
         },
         config: {
             ecg: {
@@ -544,6 +548,33 @@ document.addEventListener('DOMContentLoaded', () => {
             if (appState.streamAtivo && !appState.ecg.desenhando) { requestAnimationFrame(drawLoop); } else if (!appState.streamAtivo) { drawGrid(); drawTimestamp(appState.ecg.startTimestamp); }
         });
         btnAutoRecord.addEventListener('click', handleAutoRecordToggle);
+
+        chkSaveEcg.addEventListener('change', (e) => {
+            appState.autoRecord.saveEcg = e.target.checked;
+            // Impede que ambos sejam desmarcados
+            if (!appState.autoRecord.saveEcg && !appState.autoRecord.saveBpm) {
+                chkSaveBpm.checked = true;
+                appState.autoRecord.saveBpm = true;
+            }
+        });
+        chkSaveBpm.addEventListener('change', (e) => {
+            appState.autoRecord.saveBpm = e.target.checked;
+            // Impede que ambos sejam desmarcados
+            if (!appState.autoRecord.saveBpm && !appState.autoRecord.saveEcg) {
+                chkSaveEcg.checked = true;
+                appState.autoRecord.saveEcg = true;
+            }
+            // Se a gravação já estiver ativa, inicia ou para o log de BPM conforme necessário
+            if (appState.autoRecord.active && appState.streamAtivo) {
+                if (appState.autoRecord.saveBpm) {
+                    startBpmLogInterval();
+                } else if (appState.autoRecord.bpmLogInterval) {
+                    clearInterval(appState.autoRecord.bpmLogInterval);
+                    appState.autoRecord.bpmLogInterval = null;
+                }
+            }
+        });
+
         const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
         bpmAvgLabel.textContent = initialBpmPeriod === 0 ? 'Inst.' : `${initialBpmPeriod}s`;
     }
@@ -592,7 +623,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function stopAutoRecording() {
         if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
-        appState.autoRecord = { active: false, directoryHandle: null, bpmFileHandle: null, bpmLogInterval: null, lastSaveTimestamp: 0, };
+        appState.autoRecord = { 
+            active: false,
+            directoryHandle: null,
+            bpmFileHandle: null,
+            bpmLogInterval: null,
+            lastSaveTimestamp: 0,
+            saveEcg: true,
+            saveBpm: true,
+        };
+        chkSaveEcg.checked = true;
+        chkSaveBpm.checked = true;
         btnAutoRecord.classList.remove('recording');
         btnAutoRecord.textContent = 'Iniciar Gravação Automática';
         console.log('🛑 Gravação automática interrompida.');
@@ -603,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function autoSaveEcgScan(ecgData) {
-        if (!appState.autoRecord.active || !appState.autoRecord.directoryHandle || !ecgData || ecgData.samples.length === 0) { return; }
+         if (!appState.autoRecord.active || !appState.autoRecord.saveEcg || !appState.autoRecord.directoryHandle || !ecgData || ecgData.samples.length === 0) { return; }
         try {
             const timestamp = ecgData.timestamp;
             const filename = `ECG_${timestamp.toISOString().replace(/[:.]/g, '-')}.json`;
@@ -622,7 +663,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function logBpmData() {
-        if (!appState.autoRecord.active || !appState.autoRecord.bpmFileHandle) { return; }
+        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm || !appState.autoRecord.bpmFileHandle) { return; }
         const requiredSamples = appState.ecg.sampleRate * 2;
         if (appState.ecg.rollingBuffer.length < requiredSamples) { return; }
         const bpmValue = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
@@ -644,7 +685,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startBpmLogInterval() {
-         if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
+        if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
+        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm) { return; }
         const periodMs = appState.config.ecg.bpmAveragePeriod > 0 ? appState.config.ecg.bpmAveragePeriod * 1000 : 2000;
         appState.autoRecord.bpmLogInterval = setInterval(logBpmData, periodMs);
     }
