@@ -94,6 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
         modo: 'ecg',
         streamAtivo: false,
         displayMode: 'live',
+        lastReceivedHR: null,
+        hrSamples: [],
 
         autoRecord: {
             active: false,
@@ -104,13 +106,13 @@ document.addEventListener('DOMContentLoaded', () => {
             lastSaveTimestamp: 0,
             saveEcg: true,
             saveBpm: true,
+            bpmIntervalSeconds: 5,
         },
 
         config: {
             ecg: {
                 larguraTemporal: 10,
                 numLinhas: 5,
-                bpmAveragePeriod: 5,
             }
         },
 
@@ -120,12 +122,10 @@ document.addEventListener('DOMContentLoaded', () => {
             scanBuffer: [],
             autoSaveBuffer: [],
             loadedData: null,
-            recentRRIntervals: [],
             lastFullEcg: {
                 samples: [],
                 timestamp: null
             },
-            lastSuccessfulBpmTimestamp: null,
             startTimestamp: null,
             sampleRate: 130,
             desenhando: false,
@@ -239,62 +239,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.ecg.buffer = [];
                 appState.ecg.rollingBuffer = [];
                 appState.ecg.scanBuffer = [];
-                appState.ecg.recentRRIntervals = [];
                 appState.ecg.lastFullEcg = { samples: [], timestamp: null };
                 appState.ecg.startTimestamp = new Date();
                 appState.ecg.needsReset = true;
+                appState.lastReceivedHR = null;
+                appState.hrSamples = [];
 
+                // Inicia notificações de ECG
                 await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
 
                 const startEcgCommand = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00]);
                 await pmdControlPoint.writeValue(startEcgCommand);
 
+                // ← ADICIONAR: Inicia notificações de HR simultaneamente
+                await hrCharacteristic.startNotifications();
+                hrCharacteristic.addEventListener('characteristicvaluechanged', handleHrForEcg);
+
                 if (!appState.ecg.desenhando) {
                     requestAnimationFrame(drawLoop);
                 }
                 
-                // Inicia o timer do watchdog de BPM assim que o stream começa.
-                appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
-
+                // ← ADICIONAR: Intervalo simples para atualizar display
                 if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
                 bpmUpdateInterval = setInterval(() => {
-                    const requiredSamples = appState.config.ecg.bpmAveragePeriod > 0 
-                        ? appState.ecg.sampleRate * appState.config.ecg.bpmAveragePeriod 
-                        : appState.ecg.sampleRate * 2;
-                    
-                    if (appState.ecg.rollingBuffer.length > requiredSamples) {
-                        const bpm = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
-
-                        if (bpm !== null) {
-                            // SUCESSO: O BPM foi calculado.
-                            bpmDisplayEl.textContent = Math.round(bpm);
-                            // Reinicia o timer do watchdog, pois tivemos sucesso.
-                            appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
-                        } else {
-                            // FALHA: O BPM não foi encontrado nesta janela.
-                            bpmDisplayEl.textContent = '--';
-                            const TIMEOUT_DURATION_MS = 5000; // 5 segundos
-
-                            // Verifica se o tempo desde o último sucesso excedeu o limite.
-                            if (Date.now() - appState.ecg.lastSuccessfulBpmTimestamp > TIMEOUT_DURATION_MS) {
-                                console.warn("Sinal de BPM não detectado por mais de 5 segundos. Resetando estado do algoritmo.");
-                                
-                                // Ação de RESET: Limpa o histórico e o buffer de análise.
-                                appState.ecg.recentRRIntervals = [];
-                                appState.ecg.rollingBuffer = [];
-                                
-                                // Reinicia o timer para dar mais 5 segundos para encontrar um novo sinal.
-                                appState.ecg.lastSuccessfulBpmTimestamp = Date.now();
-                            }
-                        }
+                    if (appState.lastReceivedHR !== null) {
+                        bpmDisplayEl.textContent = appState.lastReceivedHR;
+                    } else {
+                        bpmDisplayEl.textContent = '--';
                     }
-                }, 2000);
+                }, 500);
 
                 if (appState.autoRecord.active) {
                     startBpmLogInterval();
                 }
-                console.log("✅ Stream ECG iniciado.");
+                console.log("✅ Stream ECG + HR iniciado.");
 
             } else if (appState.modo === 'hrppi') {
                 console.log("▶️ Iniciando stream HR/PPI...");
@@ -326,8 +305,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 await pmdData.stopNotifications();
                 pmdData.removeEventListener('characteristicvaluechanged', handleEcgData);
                 await pmdControlPoint.writeValue(new Uint8Array([0x03, 0x00]));
+                await hrCharacteristic.stopNotifications();
+                hrCharacteristic.removeEventListener('characteristicvaluechanged', handleHrForEcg);
                 console.log("⏹️ Stream ECG parado.");
-
             } else if (appState.modo === 'hrppi' && hrCharacteristic) {
                 console.log("🛑 Parando stream HR/PPI...");
                 await hrCharacteristic.stopNotifications();
@@ -368,10 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Limita o tamanho do rolling buffer para economizar memória
-        const maxBufferSize = Math.max(
-            appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate,
-            appState.config.ecg.bpmAveragePeriod * appState.config.ecg.sampleRate * 2
-        );
+        const maxBufferSize = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
         if (appState.ecg.rollingBuffer.length > maxBufferSize) {
             appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
         }
@@ -402,76 +379,20 @@ document.addEventListener('DOMContentLoaded', () => {
         ppiFlagsValueEl.textContent = 'OK';
     }
 
-    /**
-     * Calcula o BPM a partir de uma amostra de ECG usando uma implementação do algoritmo Pan-Tompkins.
-     */
-    function calculateBpmFromEcg(samples, sampleRate, averagingPeriodInSeconds) {
-        if (samples.length < sampleRate * 2) return null;
+    function handleHrForEcg(event) {
+        const data = event.target.value;
+        const flags = data.getUint8(0);
+        const hrFormatIs16bit = (flags & 0x01) !== 0;
         
-        const lowpassCutoff = 15.0;
-        const a_lp = Math.exp(-2.0 * Math.PI * lowpassCutoff / sampleRate);
-        let filtered_lp = [samples[0]];
-        for (let i = 1; i < samples.length; i++) { filtered_lp[i] = (1.0 - a_lp) * samples[i] + a_lp * filtered_lp[i - 1]; }
-        const highpassCutoff = 5.0;
-        const a_hp = Math.exp(-2.0 * Math.PI * highpassCutoff / sampleRate);
-        let filtered_hp = [0];
-        for (let i = 1; i < filtered_lp.length; i++) { filtered_hp[i] = (1 - a_hp) * (filtered_lp[i] - filtered_lp[i-1]) + a_hp * filtered_hp[i-1]; }
-        let derivative = [0];
-        for (let i = 1; i < filtered_hp.length; i++) { derivative[i] = filtered_hp[i] - filtered_hp[i - 1]; }
-        let squared = derivative.map(val => val * val);
-        const windowSize = Math.round(0.150 * sampleRate);
-        let integrated = [];
-        let currentSum = 0;
-        for (let i = 0; i < squared.length; i++) { currentSum += squared[i]; if (i >= windowSize) { currentSum -= squared[i - windowSize]; } integrated.push(currentSum / windowSize); }
-        let r_peaks = [];
-        let signal_peak = 0, noise_peak = 0;
-        let signal_threshold = 0, noise_threshold = 0;
-        const refractory_period = Math.round(0.2 * sampleRate);
-        for (let i = 0; i < integrated.length; i++) {
-            if (i > 0 && i < integrated.length - 1 && integrated[i] > integrated[i-1] && integrated[i] > integrated[i+1]) {
-                const current_peak = integrated[i];
-                if (r_peaks.length === 0 && i < 2 * sampleRate) { if(current_peak > noise_peak) noise_peak = current_peak; }
-                if (current_peak > signal_threshold) {
-                    if (r_peaks.length === 0 || (i - r_peaks[r_peaks.length - 1]) > refractory_period) { r_peaks.push(i); signal_peak = 0.125 * current_peak + 0.875 * signal_peak; }
-                } else if (current_peak > noise_threshold) { noise_peak = 0.125 * current_peak + 0.875 * noise_peak; }
-                signal_threshold = noise_peak + 0.25 * (signal_peak - noise_peak);
-                noise_threshold = 0.5 * signal_threshold;
-            }
+        const hr = hrFormatIs16bit ? data.getUint16(1, true) : data.getUint8(1);
+        appState.lastReceivedHR = hr;
+        
+        if (appState.autoRecord.active && appState.autoRecord.saveBpm) {
+            appState.hrSamples.push(hr);
         }
-        if (r_peaks.length < 2) return null;
-        let raw_rr_intervals = [];
-        for (let i = 1; i < r_peaks.length; i++) { raw_rr_intervals.push(r_peaks[i] - r_peaks[i-1]); }
-        const physiologicallyPlausible_rr = [];
-        const max_rr_samples = sampleRate * 1.8;
-        const min_rr_samples = sampleRate / (220 / 60);
-        for (const rr of raw_rr_intervals) { if (rr > min_rr_samples && rr < max_rr_samples) { physiologicallyPlausible_rr.push(rr); } }
-        if (physiologicallyPlausible_rr.length === 0) return null;
-        if (appState.ecg.recentRRIntervals.length === 0) { appState.ecg.recentRRIntervals.push(...physiologicallyPlausible_rr); } else {
-            for (const new_rr of physiologicallyPlausible_rr) {
-                const recent_rr_avg = appState.ecg.recentRRIntervals.reduce((a, b) => a + b, 0) / appState.ecg.recentRRIntervals.length;
-                const lower_bound = 0.65 * recent_rr_avg; const upper_bound = 1.65 * recent_rr_avg;
-                if (new_rr > lower_bound && new_rr < upper_bound) {
-                    appState.ecg.recentRRIntervals.push(new_rr);
-                    if (appState.ecg.recentRRIntervals.length > 8) { appState.ecg.recentRRIntervals.shift(); }
-                }
-            }
-        }
-        const samplesToConsider = averagingPeriodInSeconds * sampleRate;
-        let relevant_rr_sum = 0; let relevant_rr_count = 0; let samples_counted = 0;
-        for (let i = appState.ecg.recentRRIntervals.length - 1; i >= 0; i--) {
-            const interval = appState.ecg.recentRRIntervals[i];
-            if (averagingPeriodInSeconds === 0) { relevant_rr_sum = appState.ecg.recentRRIntervals.reduce((a, b) => a + b, 0); relevant_rr_count = appState.ecg.recentRRIntervals.length; break; }
-            samples_counted += interval;
-            if (samples_counted > samplesToConsider && relevant_rr_count > 0) break;
-            relevant_rr_sum += interval; relevant_rr_count++;
-        }
-        if (relevant_rr_count === 0) return null;
-        const avg_rr_samples = relevant_rr_sum / relevant_rr_count;
-        const avg_rr_seconds = avg_rr_samples / sampleRate;
-        return 60.0 / avg_rr_seconds;
     }
 
-
+    
     // =================================================================================
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
     // =================================================================================
@@ -507,18 +428,93 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2 * margin);
         
-        // ... (código para desenhar a grade) ...
-        ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
-        const minorHorizontalStep = lineHeight / 10; for (let y = minorHorizontalStep; y < height; y += minorHorizontalStep) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
-        const minorVerticalStep = pixelsPerSecond / 10; for (let x = minorVerticalStep; x < width; x += minorVerticalStep) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-        ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 0.75; for (let x = pixelsPerSecond / 2; x < width; x += pixelsPerSecond) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-        ctx.strokeStyle = '#aaaaaa'; ctx.lineWidth = 1; for (let i = 1; i < numLinhas; i++) { const y = i * lineHeight; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); } for (let i = 1; i < secs; i++) { const x = i * pixelsPerSecond; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
-        ctx.strokeStyle = '#e60012'; ctx.fillStyle = '#e60012'; ctx.lineWidth = 2; ctx.font = '12px sans-serif';
-        const barWidth = pixelsPerSecond; const startX = (width - barWidth) / 2; const endX = startX + barWidth; const barY = height + margin / 2; const tickHeight = 8;
-        ctx.beginPath(); ctx.moveTo(startX, barY); ctx.lineTo(endX, barY); ctx.moveTo(startX, barY - tickHeight / 2); ctx.lineTo(startX, barY + tickHeight / 2); ctx.moveTo(endX, barY - tickHeight / 2); ctx.lineTo(endX, barY + tickHeight / 2); ctx.stroke();
-        ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText('1 s', width / 2, barY + 5);
-        ctx.fillStyle = '#1a1a1a'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-        ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height + margin - 15); ctx.fillText('1 s/div', 10, height + margin - 2);
+        // --- Linhas menores (grade fina) ---
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 0.5;
+
+        const minorHorizontalStep = lineHeight / 10;
+        for (let y = minorHorizontalStep; y < height; y += minorHorizontalStep) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        const minorVerticalStep = pixelsPerSecond / 10;
+        for (let x = minorVerticalStep; x < width; x += minorVerticalStep) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- Linhas verticais médias ---
+        ctx.strokeStyle = '#cccccc';
+        ctx.lineWidth = 0.75;
+
+        for (let x = pixelsPerSecond / 2; x < width; x += pixelsPerSecond) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- Linhas maiores (grade principal) ---
+        ctx.strokeStyle = '#aaaaaa';
+        ctx.lineWidth = 1;
+
+        // Linhas horizontais principais
+        for (let i = 1; i < numLinhas; i++) {
+            const y = i * lineHeight;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Linhas verticais principais
+        for (let i = 1; i < secs; i++) {
+            const x = i * pixelsPerSecond;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- Barra de referência de tempo ---
+        ctx.strokeStyle = '#e60012';
+        ctx.fillStyle = '#e60012';
+        ctx.lineWidth = 2;
+        ctx.font = '12px sans-serif';
+
+        const barWidth = pixelsPerSecond;
+        const startX = (width - barWidth) / 2;
+        const endX = startX + barWidth;
+        const barY = height + margin / 2;
+        const tickHeight = 8;
+
+        ctx.beginPath();
+        ctx.moveTo(startX, barY);
+        ctx.lineTo(endX, barY);
+        ctx.moveTo(startX, barY - tickHeight / 2);
+        ctx.lineTo(startX, barY + tickHeight / 2);
+        ctx.moveTo(endX, barY - tickHeight / 2);
+        ctx.lineTo(endX, barY + tickHeight / 2);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('1 s', width / 2, barY + 5);
+
+        // --- Legendas ---
+        ctx.fillStyle = '#1a1a1a';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+
+        ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height + margin - 15);
+        ctx.fillText('1 s/div', 10, height + margin - 2);
+
     }
 
     function drawTimestamp(timestamp) {
@@ -819,6 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAutoRecord.textContent = 'Interromper Gravação Automática';
             
             appState.ecg.autoSaveBuffer = []; // Limpa o buffer de gravação
+            appState.hrSamples = [];
             startAutoSaveInterval(); // Inicia o processo de salvamento de JSON
             
             if (!appState.streamAtivo) {
@@ -867,13 +864,16 @@ document.addEventListener('DOMContentLoaded', () => {
             lastSaveTimestamp: 0,
             saveEcg: true,
             saveBpm: true,
+            bpmIntervalSeconds: 1,
         };
+
+        appState.hrSamples = [];
 
         chkSaveEcg.checked = true;
         chkSaveBpm.checked = true;
         btnAutoRecord.classList.remove('recording');
-        btnAutoRecord.textContent = 'Iniciar Gravação Automática';
-        console.log('🛑 Gravação automática interrompida.');
+        btnAutoRecord.textContent = 'Iniciar Gravação';
+        console.log('🛑 Gravação interrompida.');
     }
 
     function startAutoSaveInterval() {
@@ -934,24 +934,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (!appState.autoRecord.active || !appState.autoRecord.saveBpm) return;
         
-        const periodMs = appState.config.ecg.bpmAveragePeriod > 0 ? appState.config.ecg.bpmAveragePeriod * 1000 : 2000;
-        appState.autoRecord.bpmLogInterval = setInterval(logBpmData, periodMs);
+        const intervalMs = appState.autoRecord.bpmIntervalSeconds * 1000;
+        appState.autoRecord.bpmLogInterval = setInterval(logBpmData, intervalMs);
     }
 
-    async function logBpmData() {
+   async function logBpmData() {
         if (!appState.autoRecord.active || !appState.autoRecord.saveBpm || !appState.autoRecord.bpmFileHandle) {
             return;
         }
         
-        const requiredSamples = appState.ecg.sampleRate * 2;
-        if (appState.ecg.rollingBuffer.length < requiredSamples) return;
+        if (appState.hrSamples.length === 0) {
+            console.warn('Nenhuma amostra de HR coletada no intervalo.');
+            return;
+        }
         
-        const bpmValue = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
-        if (bpmValue === null) return;
+        const numSamples = appState.hrSamples.length;
+        const sumHR = appState.hrSamples.reduce((acc, val) => acc + val, 0);
+        const avgHR = Math.round(sumHR / numSamples);
+        
+        appState.hrSamples = []; 
         
         try {
             const timestamp = getLocalIsoString(new Date());
-            const line = `${timestamp},${Math.round(bpmValue)}\n`;
+            const line = `${timestamp},${avgHR}\n`;
             
             const writable = await appState.autoRecord.bpmFileHandle.createWritable({ keepExistingData: true });
             const file = await appState.autoRecord.bpmFileHandle.getFile();
@@ -963,6 +968,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await writable.seek(file.size);
             await writable.write(line);
             await writable.close();
+            
+            console.log(`BPM médio registrado: ${avgHR} (baseado em ${numSamples} amostras)`);
 
         } catch (error) {
             console.error('Falha ao registrar BPM:', error);
@@ -1061,7 +1068,6 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.ecg.rollingBuffer = [];
             appState.ecg.buffer = [];
             appState.ecg.scanBuffer = [];
-            appState.ecg.recentRRIntervals = [];
             appState.ecg.needsReset = true;
             if (appState.streamAtivo && !appState.ecg.desenhando) {
                 requestAnimationFrame(drawLoop);
@@ -1105,9 +1111,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (appState.displayMode !== 'live') redrawStaticEcg();
         });
         sliderBpmAvg.addEventListener('input', (e) => {
-            const period = parseInt(e.target.value);
-            appState.config.ecg.bpmAveragePeriod = period;
-            bpmAvgLabel.textContent = period === 0 ? 'Inst.' : `${period}s`;
+            const interval = parseInt(e.target.value);
+            appState.autoRecord.bpmIntervalSeconds = interval;
+            bpmAvgLabel.textContent = `${interval}s`;
             if (appState.autoRecord.active) {
                 startBpmLogInterval();
             }
@@ -1130,10 +1136,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (appState.autoRecord.active && appState.streamAtivo) {
                 if (appState.autoRecord.saveBpm) {
+                    appState.hrSamples = [];
                     startBpmLogInterval();
-                } else if (appState.autoRecord.bpmLogInterval) {
-                    clearInterval(appState.autoRecord.bpmLogInterval);
-                    appState.autoRecord.bpmLogInterval = null;
+                } else {
+                    appState.hrSamples = [];
+                    if (appState.autoRecord.bpmLogInterval) {
+                        clearInterval(appState.autoRecord.bpmLogInterval);
+                        appState.autoRecord.bpmLogInterval = null;
+                    }
                 }
             }
         });
@@ -1143,8 +1153,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateUiForMode();
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
-        const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
-        bpmAvgLabel.textContent = initialBpmPeriod === 0 ? 'Inst.' : `${initialBpmPeriod}s`;
+        //const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
+        bpmAvgLabel.textContent = `${appState.autoRecord.bpmIntervalSeconds}s`;
     }
 
     // Inicia a aplicação
