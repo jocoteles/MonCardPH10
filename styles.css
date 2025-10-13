@@ -285,3 +285,22 @@ input[type="range"] {
     font-weight: normal;
     margin-left: 8px; /* Espaço entre o número e a unidade */
 }
+
+#btn-auto-record {
+    width: 100%;
+    margin-top: 0;
+    background-color: #007bff; /* Um azul para indicar 'ação' */
+    transition: background-color 0.3s ease;
+}
+
+#btn-auto-record:hover {
+    background-color: #0056b3;
+}
+
+#btn-auto-record.recording {
+    background-color: #c82333; /* Um vermelho para indicar 'gravação ativa / perigo' */
+}
+
+#btn-auto-record.recording:hover {
+    background-color: #a71d2a;
+}
