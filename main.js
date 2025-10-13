@@ -1,18 +1,50 @@
-// main.js - Versão Corrigida e Estabilizada
+// main.js - Monitor Cardíaco Polar H10
 
 document.addEventListener('DOMContentLoaded', () => {
-    // --- ELEMENTOS DO DOM --- (Sem alterações)
-    const views = { conexao: document.getElementById('view-conexao'), aquisicao: document.getElementById('view-aquisicao'), config: document.getElementById('view-config'), };
-    const menuButtons = { conexao: document.getElementById('btn-conexao'), aquisicao: document.getElementById('btn-aquisicao'), config: document.getElementById('btn-config'), };
+
+    // =================================================================================
+    // --- SELETORES DE ELEMENTOS DO DOM ---
+    // =================================================================================
+
+    // Vistas e Navegação
+    const views = {
+        conexao: document.getElementById('view-conexao'),
+        aquisicao: document.getElementById('view-aquisicao'),
+        config: document.getElementById('view-config'),
+    };
+    const menuButtons = {
+        conexao: document.getElementById('btn-conexao'),
+        aquisicao: document.getElementById('btn-aquisicao'),
+        config: document.getElementById('btn-config'),
+    };
+
+    // Componentes de Conexão
     const statusConexao = document.getElementById('status-conexao');
     const btnConectar = document.getElementById('btn-conectar');
+    const batteryStatusValueEl = document.getElementById('battery-status-value');
+
+    // Componentes de Aquisição
     const modoEcgView = document.getElementById('modo-ecg');
     const modoHrppiView = document.getElementById('modo-hrppi');
+    const bpmDisplayEl = document.getElementById('bpm-display');
     const hrValueEl = document.getElementById('hr-value');
     const ppiValueEl = document.getElementById('ppi-value');
     const ppiErrorValueEl = document.getElementById('ppi-error-value');
     const ppiFlagsValueEl = document.getElementById('ppi-flags-value');
-    const bpmDisplayEl = document.getElementById('bpm-display');
+
+    // Canvas de ECG
+    const canvas = document.getElementById('ecg-canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Controles e Inputs de Arquivo
+    const btnSaveEcg = document.getElementById('btn-save-ecg');
+    const btnSavePng = document.getElementById('btn-save-png');
+    const btnLoadEcg = document.getElementById('btn-load-ecg');
+    const btnShowLastEcg = document.getElementById('btn-show-last-ecg');
+    const btnShowLiveEcg = document.getElementById('btn-show-live-ecg');
+    const fileInputEcg = document.getElementById('file-input-ecg');
+
+    // Componentes de Configuração
     const radioModo = document.querySelectorAll('input[name="modo"]');
     const sliderLargura = document.getElementById('slider-largura');
     const larguraLabel = document.getElementById('largura-label');
@@ -22,23 +54,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const uvLabel = document.getElementById('uv-label');
     const sliderBpmAvg = document.getElementById('slider-bpm-avg');
     const bpmAvgLabel = document.getElementById('bpm-avg-label');
+
+    // Gravação Automática
     const btnAutoRecord = document.getElementById('btn-auto-record');
-    const chkSaveEcg = document.getElementById('chk-save-ecg'); // NOVO
+    const chkSaveEcg = document.getElementById('chk-save-ecg');
     const chkSaveBpm = document.getElementById('chk-save-bpm');
-    const canvas = document.getElementById('ecg-canvas');
-    const ctx = canvas.getContext('2d');
+
+    // Modal de Aviso
     const disclaimerOverlay = document.getElementById('disclaimer-overlay');
     const btnAgree = document.getElementById('btn-agree');
     const btnDisagree = document.getElementById('btn-disagree');
-    const batteryStatusValueEl = document.getElementById('battery-status-value');
-    const btnSaveEcg = document.getElementById('btn-save-ecg');
-    const btnSavePng = document.getElementById('btn-save-png');
-    const btnLoadEcg = document.getElementById('btn-load-ecg');
-    const btnShowLastEcg = document.getElementById('btn-show-last-ecg');
-    const btnShowLiveEcg = document.getElementById('btn-show-live-ecg');
-    const fileInputEcg = document.getElementById('file-input-ecg');
 
-    // --- CONSTANTES BLUETOOTH --- (Sem alterações)
+
+    // =================================================================================
+    // --- CONSTANTES BLUETOOTH ---
+    // =================================================================================
+
     const PMD_SERVICE_UUID = "fb005c80-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_CONTROL_POINT_UUID = "fb005c81-02e7-f387-1cad-8acd2d8df0c8";
     const PMD_DATA_MTU_UUID = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
@@ -47,17 +78,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
     const BATTERY_CHARACTERISTIC_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
 
-    // --- ESTADO DA APLICAÇÃO --- (Adicionado scanBuffer)
+
+    // =================================================================================
+    // --- ESTADO GLOBAL DA APLICAÇÃO ---
+    // =================================================================================
+
     let polarDevice = null;
     let pmdControlPoint = null;
     let pmdData = null;
     let hrCharacteristic = null;
-    let batteryUpdateInterval = null; 
+    let batteryUpdateInterval = null;
     let bpmUpdateInterval = null;
+
     let appState = {
         modo: 'ecg',
         streamAtivo: false,
         displayMode: 'live',
+
         autoRecord: {
             active: false,
             directoryHandle: null,
@@ -68,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveEcg: true,
             saveBpm: true,
         },
+
         config: {
             ecg: {
                 larguraTemporal: 10,
@@ -75,12 +113,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 bpmAveragePeriod: 5,
             }
         },
+
         ecg: {
             buffer: [],
-            rollingBuffer: [], 
+            rollingBuffer: [],
             scanBuffer: [],
             autoSaveBuffer: [],
-            loadedData: null, 
+            loadedData: null,
             recentRRIntervals: [],
             lastFullEcg: {
                 samples: [],
@@ -96,38 +135,65 @@ document.addEventListener('DOMContentLoaded', () => {
             needsReset: true,
         }
     };
-    
-    // --- LÓGICA DE NAVEGAÇÃO --- (Sem alterações)
+
+
+    // =================================================================================
+    // --- LÓGICA DE NAVEGAÇÃO E UI ---
+    // =================================================================================
+
     function changeView(viewName) {
         Object.values(views).forEach(v => v.classList.remove('active'));
         Object.values(menuButtons).forEach(b => b.classList.remove('active'));
+
         views[viewName].classList.add('active');
         menuButtons[viewName].classList.add('active');
+
         if (viewName === 'aquisicao') {
             resizeCanvas();
         }
     }
-    Object.keys(menuButtons).forEach(key => {
-        menuButtons[key].addEventListener('click', () => changeView(key));
-    });
 
-    // --- LÓGICA DE CONEXÃO BLUETOOTH --- (Sem alterações)
+    function updateUiForMode() {
+        if (appState.modo === 'ecg') {
+            modoEcgView.style.display = 'block';
+            modoHrppiView.style.display = 'none';
+        } else {
+            modoEcgView.style.display = 'none';
+            modoHrppiView.style.display = 'block';
+        }
+    }
+
+
+    // =================================================================================
+    // --- LÓGICA DE CONEXÃO BLUETOOTH ---
+    // =================================================================================
+
     btnConectar.addEventListener('click', async () => {
         try {
             statusConexao.textContent = 'Procurando dispositivo...';
-            polarDevice = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'Polar H10' }], optionalServices: [PMD_SERVICE_UUID, HR_SERVICE_UUID, BATTERY_SERVICE_UUID] });
+            const options = {
+                filters: [{ namePrefix: 'Polar H10' }],
+                optionalServices: [PMD_SERVICE_UUID, HR_SERVICE_UUID, BATTERY_SERVICE_UUID]
+            };
+            polarDevice = await navigator.bluetooth.requestDevice(options);
+
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
             const server = await polarDevice.gatt.connect();
+
             statusConexao.textContent = 'Obtendo serviços e características...';
             const pmdService = await server.getPrimaryService(PMD_SERVICE_UUID);
             pmdControlPoint = await pmdService.getCharacteristic(PMD_CONTROL_POINT_UUID);
             pmdData = await pmdService.getCharacteristic(PMD_DATA_MTU_UUID);
+
             const hrService = await server.getPrimaryService(HR_SERVICE_UUID);
             hrCharacteristic = await hrService.getCharacteristic(HR_CHARACTERISTIC_UUID);
+
             statusConexao.textContent = `Conectado a ${polarDevice.name}`;
             btnConectar.textContent = 'Conectado';
             btnConectar.disabled = true;
+
             polarDevice.addEventListener('gattserverdisconnected', onDisconnect);
+
         } catch (error) {
             if (error.name === 'NotFoundError') {
                 statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
@@ -140,21 +206,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onDisconnect() {
         statusConexao.textContent = 'Dispositivo desconectado.';
-        batteryStatusValueEl.textContent = 'Desconectado'; 
+        batteryStatusValueEl.textContent = 'Desconectado';
         btnConectar.textContent = 'Conectar ao Dispositivo';
         btnConectar.disabled = false;
-        polarDevice = null; pmdControlPoint = null; pmdData = null; hrCharacteristic = null;
-        if(batteryUpdateInterval) clearInterval(batteryUpdateInterval);
-        if(bpmUpdateInterval) clearInterval(bpmUpdateInterval);
+
+        polarDevice = null;
+        pmdControlPoint = null;
+        pmdData = null;
+        hrCharacteristic = null;
+
+        if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+        if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
+
         stopStream();
     }
-    
-    // --- LÓGICA DE CONTROLE DE STREAM ---
+
+
+    // =================================================================================
+    // --- LÓGICA DE CONTROLE DE STREAM DE DADOS ---
+    // =================================================================================
+
     async function startStream() {
         if (!polarDevice || !polarDevice.gatt.connected || appState.streamAtivo) return;
+
         try {
             appState.streamAtivo = true;
             appState.displayMode = 'live';
+
             if (appState.modo === 'ecg') {
                 console.log("▶️ Iniciando stream ECG...");
                 appState.ecg.buffer = [];
@@ -163,24 +241,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.ecg.recentRRIntervals = [];
                 appState.ecg.lastFullEcg = { samples: [], timestamp: null };
                 appState.ecg.startTimestamp = new Date();
+                appState.ecg.needsReset = true;
+
                 await pmdData.startNotifications();
                 pmdData.addEventListener('characteristicvaluechanged', handleEcgData);
+
                 const startEcgCommand = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0E, 0x00]);
                 await pmdControlPoint.writeValue(startEcgCommand);
-                appState.ecg.needsReset = true;
-                if (!appState.ecg.desenhando) requestAnimationFrame(drawLoop);
+
+                if (!appState.ecg.desenhando) {
+                    requestAnimationFrame(drawLoop);
+                }
+                
                 if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
                 bpmUpdateInterval = setInterval(() => {
-                    const requiredSamples = appState.config.ecg.bpmAveragePeriod > 0 ? appState.ecg.sampleRate * appState.config.ecg.bpmAveragePeriod : appState.ecg.sampleRate * 2;
+                    const requiredSamples = appState.config.ecg.bpmAveragePeriod > 0 
+                        ? appState.ecg.sampleRate * appState.config.ecg.bpmAveragePeriod 
+                        : appState.ecg.sampleRate * 2;
+                    
                     if (appState.ecg.rollingBuffer.length > requiredSamples) {
                         const bpm = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
-                        if (bpm !== null) { bpmDisplayEl.textContent = Math.round(bpm); } else { bpmDisplayEl.textContent = '--'; }
+                        bpmDisplayEl.textContent = (bpm !== null) ? Math.round(bpm) : '--';
                     }
                 }, 2000);
+
                 if (appState.autoRecord.active) {
                     startBpmLogInterval();
                 }
                 console.log("✅ Stream ECG iniciado.");
+
             } else if (appState.modo === 'hrppi') {
                 console.log("▶️ Iniciando stream HR/PPI...");
                 await hrCharacteristic.startNotifications();
@@ -196,6 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function stopStream() {
         if (!polarDevice || !appState.streamAtivo) return;
+
         if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
         if (appState.autoRecord.bpmLogInterval) {
             clearInterval(appState.autoRecord.bpmLogInterval);
@@ -203,6 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         bpmUpdateInterval = null;
         bpmDisplayEl.textContent = '--';
+
         try {
             if (appState.modo === 'ecg' && pmdControlPoint) {
                 console.log("🛑 Parando stream ECG...");
@@ -210,6 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pmdData.removeEventListener('characteristicvaluechanged', handleEcgData);
                 await pmdControlPoint.writeValue(new Uint8Array([0x03, 0x00]));
                 console.log("⏹️ Stream ECG parado.");
+
             } else if (appState.modo === 'hrppi' && hrCharacteristic) {
                 console.log("🛑 Parando stream HR/PPI...");
                 await hrCharacteristic.stopNotifications();
@@ -217,15 +309,80 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log("⏹️ Stream HR/PPI parado.");
             }
         } catch (error) {
-            if (error.name !== 'NetworkError') { console.error("Erro ao parar stream:", error); }
+            if (error.name !== 'NetworkError') {
+                console.error("Erro ao parar stream:", error);
+            }
         } finally {
             appState.streamAtivo = false;
         }
     }
 
-    // --- ALGORITMO DE BPM --- (Mantido com a versão robusta)
+
+    // =================================================================================
+    // --- PROCESSAMENTO DE DADOS E ALGORITMOS ---
+    // =================================================================================
+
+    function handleEcgData(event) {
+        const value = event.target.value;
+        const data = new DataView(value.buffer);
+        const newSamples = [];
+
+        for (let i = 10; i < data.byteLength; i += 3) {
+            const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
+            newSamples.push(rawSample);
+        }
+
+        // Popula os buffers para diferentes finalidades
+        appState.ecg.buffer.push(...newSamples);
+        appState.ecg.rollingBuffer.push(...newSamples);
+        appState.ecg.scanBuffer.push(...newSamples);
+
+        if (appState.autoRecord.active && appState.autoRecord.saveEcg) {
+            appState.ecg.autoSaveBuffer.push(...newSamples);
+        }
+
+        // Limita o tamanho do rolling buffer para economizar memória
+        const maxBufferSize = Math.max(
+            appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate,
+            appState.config.ecg.bpmAveragePeriod * appState.config.ecg.sampleRate * 2
+        );
+        if (appState.ecg.rollingBuffer.length > maxBufferSize) {
+            appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
+        }
+    }
+
+    function handlePpiData(event) {
+        const data = event.target.value;
+        const flags = data.getUint8(0);
+        const hrFormatIs16bit = (flags & 0x01) !== 0;
+        const rrIntervalsPresent = (flags & 0x10) !== 0;
+        let index = 1;
+
+        const hr = hrFormatIs16bit ? data.getUint16(index, true) : data.getUint8(index);
+        index += hrFormatIs16bit ? 2 : 1;
+
+        const ppiValues = [];
+        if (rrIntervalsPresent) {
+            while (index < data.byteLength) {
+                const rr = data.getUint16(index, true);
+                ppiValues.push(Math.round((rr / 1024) * 1000));
+                index += 2;
+            }
+        }
+
+        hrValueEl.textContent = hr;
+        ppiValueEl.textContent = ppiValues.length > 0 ? ppiValues.join(', ') : '--';
+        ppiErrorValueEl.textContent = '--';
+        ppiFlagsValueEl.textContent = 'OK';
+    }
+
+    /**
+     * Calcula o BPM a partir de uma amostra de ECG usando uma implementação do algoritmo Pan-Tompkins.
+     */
     function calculateBpmFromEcg(samples, sampleRate, averagingPeriodInSeconds) {
-        if (samples.length < sampleRate * 2) { return null; }
+        if (samples.length < sampleRate * 2) return null;
+        
+        // ... (o corpo do algoritmo permanece inalterado)
         const lowpassCutoff = 15.0;
         const a_lp = Math.exp(-2.0 * Math.PI * lowpassCutoff / sampleRate);
         let filtered_lp = [samples[0]];
@@ -256,14 +413,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 noise_threshold = 0.5 * signal_threshold;
             }
         }
-        if (r_peaks.length < 2) { return null; }
+        if (r_peaks.length < 2) return null;
         let raw_rr_intervals = [];
         for (let i = 1; i < r_peaks.length; i++) { raw_rr_intervals.push(r_peaks[i] - r_peaks[i-1]); }
         const physiologicallyPlausible_rr = [];
         const max_rr_samples = sampleRate * 1.8;
         const min_rr_samples = sampleRate / (220 / 60);
         for (const rr of raw_rr_intervals) { if (rr > min_rr_samples && rr < max_rr_samples) { physiologicallyPlausible_rr.push(rr); } }
-        if (physiologicallyPlausible_rr.length === 0) { return null; }
+        if (physiologicallyPlausible_rr.length === 0) return null;
         if (appState.ecg.recentRRIntervals.length === 0) { appState.ecg.recentRRIntervals.push(...physiologicallyPlausible_rr); } else {
             for (const new_rr of physiologicallyPlausible_rr) {
                 const recent_rr_avg = appState.ecg.recentRRIntervals.reduce((a, b) => a + b, 0) / appState.ecg.recentRRIntervals.length;
@@ -289,85 +446,44 @@ document.addEventListener('DOMContentLoaded', () => {
         return 60.0 / avg_rr_seconds;
     }
 
-    async function updateBatteryStatus() {
-        if (!polarDevice || !polarDevice.gatt.connected) {
-            batteryStatusValueEl.textContent = 'Desconectado';
-            if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); return;
-        }
-        try {
-            batteryStatusValueEl.textContent = 'Lendo...';
-            const batteryService = await polarDevice.gatt.getPrimaryService(BATTERY_SERVICE_UUID);
-            const batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
-            const batteryValue = await batteryCharacteristic.readValue();
-            const batteryPercent = batteryValue.getUint8(0);
-            batteryStatusValueEl.textContent = `${batteryPercent}%`;
-        } catch (error) {
-            console.error("Erro ao ler nível da bateria:", error);
-            batteryStatusValueEl.textContent = 'Erro ao ler';
-        }
-    }
 
-    // --- HANDLERS DE DADOS --- (Adicionada populacão do scanBuffer)
-    function handleEcgData(event) {
-        const value = event.target.value;
-        const data = new DataView(value.buffer);
-        const newSamples = [];
-        for (let i = 10; i < data.byteLength; i += 3) {
-            const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
-            newSamples.push(rawSample);
-        }
-        appState.ecg.buffer.push(...newSamples);
-        appState.ecg.rollingBuffer.push(...newSamples);
-        appState.ecg.scanBuffer.push(...newSamples);
-
-        if (appState.autoRecord.active && appState.autoRecord.saveEcg) {
-            appState.ecg.autoSaveBuffer.push(...newSamples);
-        }
-        const maxBufferSize = Math.max(appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod * appState.config.ecg.sampleRate * 2);
-        if (appState.ecg.rollingBuffer.length > maxBufferSize) {
-            appState.ecg.rollingBuffer.splice(0, appState.ecg.rollingBuffer.length - maxBufferSize);
-        }
-    }
-
-    function handlePpiData(event) {
-        const data = event.target.value;
-        const flags = data.getUint8(0);
-        const hrFormatIs16bit = (flags & 0x01) !== 0; const rrIntervalsPresent = (flags & 0x10) !== 0;
-        let index = 1;
-        const hr = hrFormatIs16bit ? data.getUint16(index, true) : data.getUint8(index);
-        index += hrFormatIs16bit ? 2 : 1;
-        const ppiValues = [];
-        if (rrIntervalsPresent) {
-            while (index < data.byteLength) { const rr = data.getUint16(index, true); ppiValues.push(Math.round((rr / 1024) * 1000)); index += 2; }
-        }
-        hrValueEl.textContent = hr; ppiValueEl.textContent = ppiValues.length > 0 ? ppiValues.join(', ') : '--'; ppiErrorValueEl.textContent = '--'; ppiFlagsValueEl.textContent = 'OK';
-    }
-    
-    // --- LÓGICA DE CONFIGURAÇÃO E UI ---
-    function updateUiForMode() {
-        if (appState.modo === 'ecg') { modoEcgView.style.display = 'block'; modoHrppiView.style.display = 'none'; } else { modoEcgView.style.display = 'none'; modoHrppiView.style.display = 'block'; }
-    }
-    radioModo.forEach(radio => {
-        radio.addEventListener('change', async (e) => {
-            if (e.target.value === appState.modo) return;
-            if (appState.streamAtivo) { await stopStream(); appState.modo = e.target.value; updateUiForMode(); await startStream(); } else { appState.modo = e.target.value; updateUiForMode(); }
-        });
-    });
-    sliderLargura.addEventListener('input', (e) => { appState.config.ecg.larguraTemporal = parseInt(e.target.value); larguraLabel.textContent = e.target.value; appState.ecg.needsReset = true; if (appState.displayMode !== 'live') { redrawStaticEcg(); } });
-    sliderLinhas.addEventListener('input', (e) => { appState.config.ecg.numLinhas = parseInt(e.target.value); linhasLabel.textContent = e.target.value; appState.ecg.needsReset = true; if (appState.displayMode !== 'live') { redrawStaticEcg(); } });
-    sliderUv.addEventListener('input', (e) => { appState.ecg.uV_per_div = parseInt(e.target.value); uvLabel.textContent = e.target.value; appState.ecg.needsReset = true; if (appState.displayMode !== 'live') { redrawStaticEcg(); } });
-    sliderBpmAvg.addEventListener('input', (e) => { const period = parseInt(e.target.value); appState.config.ecg.bpmAveragePeriod = period; bpmAvgLabel.textContent = period === 0 ? 'Inst.' : `${period}s`; if (appState.autoRecord.active) { startBpmLogInterval(); } });
-
+    // =================================================================================
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
+    // =================================================================================
+
     function resizeCanvas() {
-        const dpr = window.devicePixelRatio || 1; const rect = canvas.getBoundingClientRect(); const visibleHeight = rect.height; const lineHeight = visibleHeight / appState.config.ecg.numLinhas; const margin = lineHeight / 2;
-        canvas.width = rect.width * dpr; canvas.height = (visibleHeight + 2 * margin) * dpr;
-        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr); ctx.translate(0, margin);
-        appState.ecg.needsReset = true; if (appState.displayMode !== 'live') { redrawStaticEcg(); }
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const visibleHeight = rect.height;
+        const lineHeight = visibleHeight / appState.config.ecg.numLinhas;
+        const margin = lineHeight / 2;
+
+        canvas.width = rect.width * dpr;
+        canvas.height = (visibleHeight + 2 * margin) * dpr;
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        ctx.translate(0, margin);
+
+        appState.ecg.needsReset = true;
+        if (appState.displayMode !== 'live') {
+            redrawStaticEcg();
+        }
     }
+
     function drawGrid() {
-        const width = canvas.clientWidth; const height = canvas.clientHeight; const numLinhas = appState.config.ecg.numLinhas; const lineHeight = height / numLinhas; const secs = appState.config.ecg.larguraTemporal; const pixelsPerSecond = width / secs; const margin = lineHeight / 2;
-        ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2*margin); ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const numLinhas = appState.config.ecg.numLinhas;
+        const lineHeight = height / numLinhas;
+        const secs = appState.config.ecg.larguraTemporal;
+        const pixelsPerSecond = width / secs;
+        const margin = lineHeight / 2;
+
+        ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2 * margin);
+        
+        // ... (código para desenhar a grade) ...
+        ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
         const minorHorizontalStep = lineHeight / 10; for (let y = minorHorizontalStep; y < height; y += minorHorizontalStep) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
         const minorVerticalStep = pixelsPerSecond / 10; for (let x = minorVerticalStep; x < width; x += minorVerticalStep) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
         ctx.strokeStyle = '#cccccc'; ctx.lineWidth = 0.75; for (let x = pixelsPerSecond / 2; x < width; x += pixelsPerSecond) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
@@ -379,20 +495,22 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillStyle = '#1a1a1a'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
         ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height + margin - 15); ctx.fillText('1 s/div', 10, height + margin - 2);
     }
-    function formatTimestamp(date) {
-        if (!(date instanceof Date) || isNaN(date)) { return { time: 'HH:MM:SS', date: 'DD/MM/AAAA' }; }
-        const HH = String(date.getHours()).padStart(2, '0'); const MM = String(date.getMinutes()).padStart(2, '0'); const SS = String(date.getSeconds()).padStart(2, '0');
-        const DD = String(date.getDate()).padStart(2, '0'); const MO = String(date.getMonth() + 1).padStart(2, '0'); const YYYY = date.getFullYear();
-        return { time: `${HH}:${MM}:${SS}`, date: `${DD}/${MO}/${YYYY}` };
-    }
+
     function drawTimestamp(timestamp) {
         const { time, date } = formatTimestamp(timestamp);
-        const height = canvas.clientHeight; const width = canvas.clientWidth; const lineHeight = height / appState.config.ecg.numLinhas; const margin = lineHeight / 2;
-        ctx.fillStyle = '#1a1a1a'; ctx.font = '14px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-        ctx.fillText(time, width - 10, height + margin - 15); ctx.fillText(date, width - 10, height + margin - 2);
+        const height = canvas.clientHeight;
+        const width = canvas.clientWidth;
+        const lineHeight = height / appState.config.ecg.numLinhas;
+        const margin = lineHeight / 2;
+
+        ctx.fillStyle = '#1a1a1a';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(time, width - 10, height + margin - 15);
+        ctx.fillText(date, width - 10, height + margin - 2);
     }
 
-    // --- CORREÇÃO 1: LÓGICA DE GRAVAÇÃO E THROTTLE RESTAURADO ---
     function drawLoop() {
         if (appState.displayMode !== 'live' || !appState.streamAtivo) {
             appState.ecg.desenhando = false;
@@ -407,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.ecg.currentLine = 0;
             appState.ecg.lastY = null;
             appState.ecg.needsReset = false;
-            appState.ecg.scanBuffer = []; // Limpa o buffer de gravação no início de cada nova tela
+            appState.ecg.scanBuffer = [];
         }
 
         const width = canvas.clientWidth;
@@ -416,7 +534,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const gain = lineHeight / appState.ecg.uV_per_div;
         const pixelsPerSecond = width / appState.config.ecg.larguraTemporal;
         const pixelsPerSample = pixelsPerSecond / appState.ecg.sampleRate;
-        
+
         ctx.strokeStyle = '#0052cc';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -424,12 +542,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.moveTo(appState.ecg.currentX, appState.ecg.lastY);
         }
 
-        while(appState.ecg.buffer.length > 0) {
+        while (appState.ecg.buffer.length > 0) {
             const sample = appState.ecg.buffer.shift();
             const lineOffsetY = (appState.ecg.currentLine * lineHeight) + (lineHeight / 2);
-            const currentY = lineOffsetY - (sample * gain); 
+            const currentY = lineOffsetY - (sample * gain);
             ctx.lineTo(appState.ecg.currentX, currentY);
-            
+
             appState.ecg.currentX += pixelsPerSample;
             appState.ecg.lastY = currentY;
 
@@ -438,48 +556,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.ecg.currentLine++;
                 appState.ecg.currentX = 0;
                 appState.ecg.lastY = null;
-                
+
                 if (appState.ecg.currentLine >= appState.config.ecg.numLinhas) {
                     appState.ecg.lastFullEcg = {
                         samples: [...appState.ecg.scanBuffer],
-                        timestamp: appState.ecg.startTimestamp 
+                        timestamp: appState.ecg.startTimestamp
                     };
 
+                    // Reinicia a tela
                     appState.ecg.currentLine = 0;
                     appState.ecg.startTimestamp = new Date();
                     drawGrid();
                     drawTimestamp(appState.ecg.startTimestamp);
-                    appState.ecg.scanBuffer = []; // Limpa para a próxima gravação
+                    appState.ecg.scanBuffer = [];
                 }
                 ctx.beginPath();
-                break; 
+                break;
             }
         }
         ctx.stroke();
         requestAnimationFrame(drawLoop);
     }
 
-    function startAutoSaveInterval() {
-        if (appState.autoRecord.autoSaveInterval) { clearInterval(appState.autoRecord.autoSaveInterval); }
-        if (!appState.autoRecord.active || !appState.autoRecord.saveEcg) return;
+    function redrawStaticEcg() {
+        const dataToDraw = getCurrentDisplayData();
+        const data = dataToDraw.samples;
+        const timestamp = dataToDraw.timestamp;
 
-        appState.autoRecord.autoSaveInterval = setInterval(() => {
-            const samplesPerScan = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
-            
-            if (appState.ecg.autoSaveBuffer.length >= samplesPerScan) {
-                const samplesToSave = appState.ecg.autoSaveBuffer.splice(0, samplesPerScan);
-                const scanDurationMs = (samplesPerScan / appState.ecg.sampleRate) * 1000;
-                const timestamp = new Date(Date.now() - scanDurationMs);
+        if (!data || data.length === 0) {
+            drawGrid();
+            drawTimestamp(null);
+            return;
+        }
 
-                console.log(`Salvando scan de ECG em background...`);
-                autoSaveEcgScan({ samples: samplesToSave, timestamp: timestamp });
+        drawGrid();
+        drawTimestamp(timestamp);
+
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const lineHeight = height / appState.config.ecg.numLinhas;
+        const gain = lineHeight / appState.ecg.uV_per_div;
+        const pixelsPerSecond = width / appState.config.ecg.larguraTemporal;
+        const pixelsPerSample = pixelsPerSecond / appState.ecg.sampleRate;
+
+        ctx.strokeStyle = '#0052cc';
+        ctx.lineWidth = 1.5;
+        let currentX = 0;
+        let currentLine = 0;
+        let lastY = null;
+        ctx.beginPath();
+
+        for (const sample of data) {
+            const lineOffsetY = (currentLine * lineHeight) + (lineHeight / 2);
+            const currentY = lineOffsetY - (sample * gain);
+
+            if (lastY === null) {
+                ctx.moveTo(currentX, currentY);
+            } else {
+                ctx.lineTo(currentX, currentY);
             }
-        }, 2000); 
+            
+            currentX += pixelsPerSample;
+            lastY = currentY;
+
+            if (currentX >= width) {
+                ctx.stroke();
+                currentLine++;
+                currentX = 0;
+                lastY = null;
+                if (currentLine >= appState.config.ecg.numLinhas) {
+                    break;
+                }
+                ctx.beginPath();
+            }
+        }
+        ctx.stroke();
     }
-    
-    // --- Funções de Salvar e Carregar --- (Sem alterações)
-    function arrayBufferToBase64(buffer) { let binary = ''; const bytes = new Uint8Array(buffer); const len = bytes.byteLength; for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); } return window.btoa(binary); }
-    function base64ToTypedArray(base64) { const binary_string = window.atob(base64); const len = binary_string.length; const bytes = new Uint8Array(len); for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); } return new Int32Array(bytes.buffer); }
+
+
+    // =================================================================================
+    // --- LÓGICA DE ARQUIVOS E DADOS (SALVAR/CARREGAR) ---
+    // =================================================================================
+
     function getLocalIsoString(dateInput) {
         const date = dateInput || new Date();
         const pad = (n) => n.toString().padStart(2, '0');
@@ -490,101 +648,450 @@ document.addEventListener('DOMContentLoaded', () => {
             ':' + pad(date.getMinutes()) +
             ':' + pad(date.getSeconds());
     }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    function base64ToTypedArray(base64) {
+        const binary_string = window.atob(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return new Int32Array(bytes.buffer);
+    }
+
     function getCurrentDisplayData() {
         switch (appState.displayMode) {
-            case 'live': return { samples: appState.ecg.rollingBuffer, timestamp: appState.ecg.startTimestamp };
-            case 'loaded': return appState.ecg.loadedData;
+            case 'live':
+                return { samples: appState.ecg.rollingBuffer, timestamp: appState.ecg.startTimestamp };
+            case 'loaded':
+                return appState.ecg.loadedData;
             case 'last':
-                if (appState.ecg.lastFullEcg.samples.length > 0) { return appState.ecg.lastFullEcg; } 
-                else { return { samples: appState.ecg.rollingBuffer, timestamp: appState.ecg.startTimestamp }; }
-            default: return { samples: [], timestamp: null };
+                if (appState.ecg.lastFullEcg.samples.length > 0) {
+                    return appState.ecg.lastFullEcg;
+                } else {
+                    return { samples: appState.ecg.rollingBuffer, timestamp: appState.ecg.startTimestamp };
+                }
+            default:
+                return { samples: [], timestamp: null };
         }
     }
+
     function saveEcgData() {
         const dataToSave = getCurrentDisplayData();
-        if (!dataToSave || !dataToSave.samples || dataToSave.samples.length === 0) { alert("Não há dados..."); return; }
-        const samplesToSave = new Int32Array(dataToSave.samples);
+        if (!dataToSave || !dataToSave.samples || dataToSave.samples.length === 0) {
+            alert("Não há dados de ECG visíveis na tela para salvar.");
+            return;
+        }
+        
         const localTimestampStr = getLocalIsoString(dataToSave.timestamp);
-        const saveData = { 
+        const saveData = {
             timestamp: localTimestampStr,
-            sampleRate: appState.ecg.sampleRate, 
-            uV_per_div: appState.ecg.uV_per_div, 
-            samples_base64: arrayBufferToBase64(samplesToSave.buffer) 
+            sampleRate: appState.ecg.sampleRate,
+            uV_per_div: appState.ecg.uV_per_div,
+            samples_base64: arrayBufferToBase64(new Int32Array(dataToSave.samples).buffer)
         };
+
         const jsonString = JSON.stringify(saveData, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); 
-        a.href = url; 
+        const a = document.createElement('a');
+        
+        a.href = url;
         a.download = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
+
     function saveCanvasAsPng() {
-        const currentData = getCurrentDisplayData(); 
-        const timestamp = currentData.timestamp || new Date(); 
+        const currentData = getCurrentDisplayData();
+        const timestamp = currentData.timestamp || new Date();
         const localTimestampStr = getLocalIsoString(timestamp);
         const filename = `ECG-PNG_${localTimestampStr.replace(/[:T]/g, '-')}.png`;
-        const tempCanvas = document.createElement('canvas'); tempCanvas.width = canvas.width; tempCanvas.height = canvas.height; const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.fillStyle = '#ffffff'; tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height); tempCtx.drawImage(canvas, 0, 0);
-        const link = document.createElement('a'); link.download = filename; link.href = tempCanvas.toDataURL('image/png');
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        tempCtx.fillStyle = '#ffffff';
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(canvas, 0, 0);
+
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = tempCanvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
+
     function loadEcgData(event) {
-        const file = event.target.files[0]; if (!file) return;
+        const file = event.target.files[0];
+        if (!file) return;
+
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
                 const data = JSON.parse(e.target.result);
-                if (!data.timestamp || !data.samples_base64) { throw new Error("Formato de arquivo inválido."); }
-                appState.ecg.loadedData = { samples: base64ToTypedArray(data.samples_base64), timestamp: new Date(data.timestamp), sampleRate: data.sampleRate || 130, uV_per_div: data.uV_per_div || 1000 };
-                appState.displayMode = 'loaded'; redrawStaticEcg();
-            } catch (error) { alert(`Erro ao carregar o arquivo: ${error.message}`); console.error(error); }
+                if (!data.timestamp || !data.samples_base64) {
+                    throw new Error("Formato de arquivo inválido.");
+                }
+                appState.ecg.loadedData = {
+                    samples: base64ToTypedArray(data.samples_base64),
+                    timestamp: new Date(data.timestamp),
+                    sampleRate: data.sampleRate || 130,
+                    uV_per_div: data.uV_per_div || 1000
+                };
+                appState.displayMode = 'loaded';
+                redrawStaticEcg();
+            } catch (error) {
+                alert(`Erro ao carregar o arquivo: ${error.message}`);
+                console.error(error);
+            }
         };
-        reader.readAsText(file); fileInputEcg.value = '';
+        reader.readAsText(file);
+        fileInputEcg.value = '';
     }
-    function redrawStaticEcg() {
-        const dataToDraw = getCurrentDisplayData(); const data = dataToDraw.samples; const timestamp = dataToDraw.timestamp;
-        if (!data || data.length === 0) { drawGrid(); drawTimestamp(null); return; }
-        drawGrid(); drawTimestamp(timestamp);
-        const width = canvas.clientWidth; const height = canvas.clientHeight; const lineHeight = height / appState.config.ecg.numLinhas; const gain = lineHeight / appState.ecg.uV_per_div; const pixelsPerSecond = width / appState.config.ecg.larguraTemporal; const pixelsPerSample = pixelsPerSecond / appState.ecg.sampleRate;
-        ctx.strokeStyle = '#0052cc'; ctx.lineWidth = 1.5; let currentX = 0; let currentLine = 0; let lastY = null; ctx.beginPath();
-        for(const sample of data) {
-            const lineOffsetY = (currentLine * lineHeight) + (lineHeight / 2); const currentY = lineOffsetY - (sample * gain);
-            if (lastY === null) { ctx.moveTo(currentX, currentY); } else { ctx.lineTo(currentX, currentY); }
-            currentX += pixelsPerSample; lastY = currentY;
-            if (currentX >= width) { ctx.stroke(); currentLine++; currentX = 0; lastY = null; if (currentLine >= appState.config.ecg.numLinhas) { break; } ctx.beginPath(); }
+
+
+    // =================================================================================
+    // --- LÓGICA DE GRAVAÇÃO AUTOMÁTICA ---
+    // =================================================================================
+
+    async function handleAutoRecordToggle() {
+        if (appState.autoRecord.active) {
+            await stopAutoRecording();
+        } else {
+            await startAutoRecording();
         }
-        ctx.stroke();
     }
-    
-    // --- INICIALIZAÇÃO E EVENTOS ---
+
+    async function startAutoRecording() {
+        if (!polarDevice || !polarDevice.gatt.connected) {
+            alert("Por favor, conecte-se ao dispositivo Polar H10 antes de iniciar a gravação.");
+            return;
+        }
+
+        try {
+            const dirHandle = await window.showDirectoryPicker();
+            appState.autoRecord.directoryHandle = dirHandle;
+            appState.autoRecord.bpmFileHandle = await dirHandle.getFileHandle('registro_bpm.csv', { create: true });
+            
+            appState.autoRecord.active = true;
+            btnAutoRecord.classList.add('recording');
+            btnAutoRecord.textContent = 'Interromper Gravação Automática';
+            
+            appState.ecg.autoSaveBuffer = []; // Limpa o buffer de gravação
+            startAutoSaveInterval(); // Inicia o processo de salvamento de JSON
+            
+            if (!appState.streamAtivo) {
+                console.log("Iniciando stream de dados para gravação automática...");
+                if (appState.modo !== 'ecg') {
+                    alert("A gravação automática só funciona no modo ECG. Por favor, mude o modo em Configurações.");
+                    stopAutoRecording(); // Reverte o estado se o modo estiver errado
+                    return;
+                }
+                await startStream();
+            } else {
+                startBpmLogInterval();
+            }
+            
+            console.log('✅ Gravação automática iniciada na pasta:', dirHandle.name);
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('O usuário cancelou a seleção da pasta.');
+            } else {
+                console.error('Erro ao iniciar a gravação automática:', error);
+                alert('Não foi possível iniciar a gravação. Verifique as permissões do navegador.');
+            }
+            stopAutoRecording(); // Garante que a UI reverta em caso de erro
+        }
+    }
+
+    async function stopAutoRecording() {
+        if (appState.streamAtivo) {
+            await stopStream();
+        }
+
+        if (appState.autoRecord.autoSaveInterval) {
+            clearInterval(appState.autoRecord.autoSaveInterval);
+        }
+        if (appState.autoRecord.bpmLogInterval) {
+            clearInterval(appState.autoRecord.bpmLogInterval);
+        }
+
+        appState.autoRecord = {
+            active: false,
+            directoryHandle: null,
+            bpmFileHandle: null,
+            bpmLogInterval: null,
+            autoSaveInterval: null,
+            lastSaveTimestamp: 0,
+            saveEcg: true,
+            saveBpm: true,
+        };
+
+        chkSaveEcg.checked = true;
+        chkSaveBpm.checked = true;
+        btnAutoRecord.classList.remove('recording');
+        btnAutoRecord.textContent = 'Iniciar Gravação Automática';
+        console.log('🛑 Gravação automática interrompida.');
+    }
+
+    function startAutoSaveInterval() {
+        if (appState.autoRecord.autoSaveInterval) {
+            clearInterval(appState.autoRecord.autoSaveInterval);
+        }
+        if (!appState.autoRecord.active || !appState.autoRecord.saveEcg) return;
+
+        // Verifica a cada 2 segundos se há dados suficientes para salvar um arquivo
+        appState.autoRecord.autoSaveInterval = setInterval(() => {
+            const samplesPerScan = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
+            
+            if (appState.ecg.autoSaveBuffer.length >= samplesPerScan) {
+                const samplesToSave = appState.ecg.autoSaveBuffer.splice(0, samplesPerScan);
+                const scanDurationMs = (samplesPerScan / appState.ecg.sampleRate) * 1000;
+                const timestamp = new Date(Date.now() - scanDurationMs);
+
+                autoSaveEcgScan({ samples: samplesToSave, timestamp: timestamp });
+            }
+        }, 2000);
+    }
+
+    async function autoSaveEcgScan(ecgData) {
+        if (!appState.autoRecord.active || !appState.autoRecord.saveEcg || !appState.autoRecord.directoryHandle || !ecgData || ecgData.samples.length === 0) {
+            return;
+        }
+
+        try {
+            const localTimestampStr = getLocalIsoString(ecgData.timestamp);
+            const filename = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
+            const fileHandle = await appState.autoRecord.directoryHandle.getFileHandle(filename, { create: true });
+            
+            const saveData = {
+                timestamp: localTimestampStr,
+                sampleRate: appState.ecg.sampleRate,
+                uV_per_div: appState.ecg.uV_per_div,
+                samples_base64: arrayBufferToBase64(new Int32Array(ecgData.samples).buffer)
+            };
+            
+            const jsonString = JSON.stringify(saveData, null, 2);
+            const writable = await fileHandle.createWritable();
+            await writable.write(jsonString);
+            await writable.close();
+            console.log(`ECG salvo automaticamente: ${filename}`);
+
+        } catch (error) {
+            console.error('Falha ao salvar ECG automaticamente:', error);
+            if (error.name === 'NotAllowedError') {
+                alert('A permissão para salvar arquivos foi perdida. A gravação automática foi interrompida.');
+                stopAutoRecording();
+            }
+        }
+    }
+
+    function startBpmLogInterval() {
+        if (appState.autoRecord.bpmLogInterval) {
+            clearInterval(appState.autoRecord.bpmLogInterval);
+        }
+        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm) return;
+        
+        const periodMs = appState.config.ecg.bpmAveragePeriod > 0 ? appState.config.ecg.bpmAveragePeriod * 1000 : 2000;
+        appState.autoRecord.bpmLogInterval = setInterval(logBpmData, periodMs);
+    }
+
+    async function logBpmData() {
+        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm || !appState.autoRecord.bpmFileHandle) {
+            return;
+        }
+        
+        const requiredSamples = appState.ecg.sampleRate * 2;
+        if (appState.ecg.rollingBuffer.length < requiredSamples) return;
+        
+        const bpmValue = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
+        if (bpmValue === null) return;
+        
+        try {
+            const timestamp = getLocalIsoString(new Date());
+            const line = `${timestamp},${Math.round(bpmValue)}\n`;
+            
+            const writable = await appState.autoRecord.bpmFileHandle.createWritable({ keepExistingData: true });
+            const file = await appState.autoRecord.bpmFileHandle.getFile();
+            
+            if (file.size === 0) {
+                await writable.write('timestamp,bpm\n');
+            }
+            
+            await writable.seek(file.size);
+            await writable.write(line);
+            await writable.close();
+
+        } catch (error) {
+            console.error('Falha ao registrar BPM:', error);
+            if (error.name === 'NotAllowedError') {
+                alert('A permissão para salvar arquivos foi perdida. A gravação automática foi interrompida.');
+                stopAutoRecording();
+            }
+        }
+    }
+
+
+    // =================================================================================
+    // --- FUNÇÃO DE INICIALIZAÇÃO E EVENT LISTENERS ---
+    // =================================================================================
+
+    async function updateBatteryStatus() {
+        if (!polarDevice || !polarDevice.gatt.connected) {
+            batteryStatusValueEl.textContent = 'Desconectado';
+            if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+            return;
+        }
+        try {
+            batteryStatusValueEl.textContent = 'Lendo...';
+            const batteryService = await polarDevice.gatt.getPrimaryService(BATTERY_SERVICE_UUID);
+            const batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+            const batteryValue = await batteryCharacteristic.readValue();
+            batteryStatusValueEl.textContent = `${batteryValue.getUint8(0)}%`;
+        } catch (error) {
+            console.error("Erro ao ler nível da bateria:", error);
+            batteryStatusValueEl.textContent = 'Erro ao ler';
+        }
+    }
+
+    function formatTimestamp(date) {
+        if (!(date instanceof Date) || isNaN(date)) {
+            return { time: 'HH:MM:SS', date: 'DD/MM/AAAA' };
+        }
+        const HH = String(date.getHours()).padStart(2, '0');
+        const MM = String(date.getMinutes()).padStart(2, '0');
+        const SS = String(date.getSeconds()).padStart(2, '0');
+        const DD = String(date.getDate()).padStart(2, '0');
+        const MO = String(date.getMonth() + 1).padStart(2, '0');
+        const YYYY = date.getFullYear();
+        return { time: `${HH}:${MM}:${SS}`, date: `${DD}/${MO}/${YYYY}` };
+    }
+
     function init() {
+        // Modal de Aviso
         btnAgree.addEventListener('click', () => { disclaimerOverlay.style.display = 'none'; });
-        btnDisagree.addEventListener('click', () => { document.body.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; padding: 20px; font-size: 1.2rem;"><p>Você precisa concordar com os termos para utilizar esta aplicação.</p></div>`; });
-        if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(err => { console.error('Falha no registro do Service Worker:', err); }); }
-        changeView('conexao'); updateUiForMode(); window.addEventListener('resize', resizeCanvas); resizeCanvas();
-        menuButtons.aquisicao.addEventListener('click', () => { if (polarDevice && !appState.streamAtivo) startStream(); if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); });
-        menuButtons.conexao.addEventListener('click', () => { if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) stopStream(); if(batteryUpdateInterval) clearInterval(batteryUpdateInterval); });
-        menuButtons.config.addEventListener('click', async () => { if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) await stopStream(); if (batteryUpdateInterval) clearInterval(batteryUpdateInterval); await updateBatteryStatus(); batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); });
+        btnDisagree.addEventListener('click', () => {
+            document.body.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; padding: 20px; font-size: 1.2rem;"><p>Você precisa concordar com os termos para utilizar esta aplicação.</p></div>`;
+        });
+
+        // Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(err => {
+                console.error('Falha no registro do Service Worker:', err);
+            });
+        }
+
+        // Navegação principal
+        Object.keys(menuButtons).forEach(key => {
+            menuButtons[key].addEventListener('click', () => changeView(key));
+        });
+        menuButtons.aquisicao.addEventListener('click', () => {
+            if (polarDevice && !appState.streamAtivo) startStream();
+            if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+        });
+        menuButtons.conexao.addEventListener('click', () => {
+            if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) stopStream();
+            if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+        });
+        menuButtons.config.addEventListener('click', async () => {
+            if (polarDevice && appState.streamAtivo && !appState.autoRecord.active) await stopStream();
+            if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
+            await updateBatteryStatus();
+            batteryUpdateInterval = setInterval(updateBatteryStatus, 120000); // Atualiza a cada 2 min
+        });
+
+        // Controles da tela de Aquisição
         btnSaveEcg.addEventListener('click', saveEcgData);
         btnSavePng.addEventListener('click', saveCanvasAsPng);
         btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
         fileInputEcg.addEventListener('change', loadEcgData);
         btnShowLastEcg.addEventListener('click', () => {
-            if (appState.ecg.lastFullEcg.samples.length === 0 && appState.ecg.rollingBuffer.length === 0) { alert("Nenhum dado de ECG foi gravado ainda."); return; }
-            appState.displayMode = 'last'; redrawStaticEcg();
+            if (appState.ecg.lastFullEcg.samples.length === 0 && appState.ecg.rollingBuffer.length === 0) {
+                alert("Nenhum dado de ECG foi gravado ainda.");
+                return;
+            }
+            appState.displayMode = 'last';
+            redrawStaticEcg();
         });
         btnShowLiveEcg.addEventListener('click', () => {
-            appState.displayMode = 'live'; appState.ecg.startTimestamp = new Date();
-            appState.ecg.rollingBuffer = []; appState.ecg.buffer = []; appState.ecg.scanBuffer = []; appState.ecg.recentRRIntervals = [];
-            appState.ecg.currentX = 0; appState.ecg.currentLine = 0; appState.ecg.lastY = null; appState.ecg.needsReset = true;
-            if (appState.streamAtivo && !appState.ecg.desenhando) { requestAnimationFrame(drawLoop); } else if (!appState.streamAtivo) { drawGrid(); drawTimestamp(appState.ecg.startTimestamp); }
+            appState.displayMode = 'live';
+            appState.ecg.startTimestamp = new Date();
+            appState.ecg.rollingBuffer = [];
+            appState.ecg.buffer = [];
+            appState.ecg.scanBuffer = [];
+            appState.ecg.recentRRIntervals = [];
+            appState.ecg.needsReset = true;
+            if (appState.streamAtivo && !appState.ecg.desenhando) {
+                requestAnimationFrame(drawLoop);
+            } else if (!appState.streamAtivo) {
+                drawGrid();
+                drawTimestamp(appState.ecg.startTimestamp);
+            }
         });
-        btnAutoRecord.addEventListener('click', handleAutoRecordToggle);
 
+        // Controles da tela de Configuração
+        radioModo.forEach(radio => {
+            radio.addEventListener('change', async (e) => {
+                if (e.target.value === appState.modo) return;
+                if (appState.streamAtivo) {
+                    await stopStream();
+                    appState.modo = e.target.value;
+                    updateUiForMode();
+                    await startStream();
+                } else {
+                    appState.modo = e.target.value;
+                    updateUiForMode();
+                }
+            });
+        });
+        sliderLargura.addEventListener('input', (e) => {
+            appState.config.ecg.larguraTemporal = parseInt(e.target.value);
+            larguraLabel.textContent = e.target.value;
+            appState.ecg.needsReset = true;
+            if (appState.displayMode !== 'live') redrawStaticEcg();
+        });
+        sliderLinhas.addEventListener('input', (e) => {
+            appState.config.ecg.numLinhas = parseInt(e.target.value);
+            linhasLabel.textContent = e.target.value;
+            appState.ecg.needsReset = true;
+            if (appState.displayMode !== 'live') redrawStaticEcg();
+        });
+        sliderUv.addEventListener('input', (e) => {
+            appState.ecg.uV_per_div = parseInt(e.target.value);
+            uvLabel.textContent = e.target.value;
+            appState.ecg.needsReset = true;
+            if (appState.displayMode !== 'live') redrawStaticEcg();
+        });
+        sliderBpmAvg.addEventListener('input', (e) => {
+            const period = parseInt(e.target.value);
+            appState.config.ecg.bpmAveragePeriod = period;
+            bpmAvgLabel.textContent = period === 0 ? 'Inst.' : `${period}s`;
+            if (appState.autoRecord.active) {
+                startBpmLogInterval();
+            }
+        });
+        
+        // Gravação Automática
+        btnAutoRecord.addEventListener('click', handleAutoRecordToggle);
         chkSaveEcg.addEventListener('change', (e) => {
             appState.autoRecord.saveEcg = e.target.checked;
-            // Impede que ambos sejam desmarcados
             if (!appState.autoRecord.saveEcg && !appState.autoRecord.saveBpm) {
                 chkSaveBpm.checked = true;
                 appState.autoRecord.saveBpm = true;
@@ -592,12 +1099,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         chkSaveBpm.addEventListener('change', (e) => {
             appState.autoRecord.saveBpm = e.target.checked;
-            // Impede que ambos sejam desmarcados
             if (!appState.autoRecord.saveBpm && !appState.autoRecord.saveEcg) {
                 chkSaveEcg.checked = true;
                 appState.autoRecord.saveEcg = true;
             }
-            // Se a gravação já estiver ativa, inicia ou para o log de BPM conforme necessário
             if (appState.autoRecord.active && appState.streamAtivo) {
                 if (appState.autoRecord.saveBpm) {
                     startBpmLogInterval();
@@ -608,141 +1113,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // Configuração Inicial da UI
+        changeView('conexao');
+        updateUiForMode();
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
         const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
         bpmAvgLabel.textContent = initialBpmPeriod === 0 ? 'Inst.' : `${initialBpmPeriod}s`;
     }
 
-    // --- CORREÇÃO 2: LÓGICA DE INÍCIO DA GRAVAÇÃO ---
-    async function startAutoRecording() {
-        if (!polarDevice || !polarDevice.gatt.connected) {
-            alert("Por favor, conecte-se ao dispositivo Polar H10 antes de iniciar a gravação.");
-            return;
-        }
-        try {
-            const dirHandle = await window.showDirectoryPicker();
-            appState.autoRecord.directoryHandle = dirHandle;
-            appState.autoRecord.bpmFileHandle = await dirHandle.getFileHandle('registro_bpm.csv', { create: true });
-            
-            // Define o estado como ativo ANTES de iniciar processos dependentes
-            appState.autoRecord.active = true;
-            btnAutoRecord.classList.add('recording');
-            btnAutoRecord.textContent = 'Interromper Gravação Automática';
-            
-            appState.ecg.autoSaveBuffer = []; // Limpa o buffer antes de começar
-            startAutoSaveInterval();
-
-            if (!appState.streamAtivo) {
-                console.log("Iniciando stream de dados para gravação automática...");
-                if (appState.modo !== 'ecg') {
-                    alert("A gravação automática só funciona no modo ECG. Por favor, mude o modo em Configurações.");
-                    stopAutoRecording(); // Reverte o estado se o modo estiver errado
-                    return;
-                }
-                await startStream(); // Esta função agora iniciará o log de BPM porque autoRecord.active é true
-            } else {
-                // Se o stream já está ativo, apenas precisamos iniciar o log de BPM
-                startBpmLogInterval();
-            }
-            
-            console.log('✅ Gravação automática iniciada na pasta:', dirHandle.name);
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('O usuário cancelou a seleção da pasta.');
-            } else {
-                console.error('Erro ao iniciar a gravação automática:', error);
-                alert('Não foi possível iniciar a gravação. Verifique as permissões do navegador.');
-            }
-            // Garante que a UI reverta em caso de erro
-            stopAutoRecording();
-        }
-    }
-
-    async function stopAutoRecording() {
-        if (appState.streamAtivo) {
-            await stopStream();
-        }
-        if (appState.autoRecord.autoSaveInterval) {
-            clearInterval(appState.autoRecord.autoSaveInterval);
-            appState.autoRecord.autoSaveInterval = null;
-        }
-        if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
-        appState.autoRecord = { 
-            active: false,
-            directoryHandle: null,
-            bpmFileHandle: null,
-            bpmLogInterval: null,
-            lastSaveTimestamp: 0,
-            saveEcg: true,
-            saveBpm: true,
-        };
-        chkSaveEcg.checked = true;
-        chkSaveBpm.checked = true;
-        btnAutoRecord.classList.remove('recording');
-        btnAutoRecord.textContent = 'Iniciar Gravação Automática';
-        console.log('🛑 Gravação automática interrompida.');
-    }
-
-    async function handleAutoRecordToggle() {
-        if (appState.autoRecord.active) {
-            await stopAutoRecording();
-        } else {
-            await startAutoRecording();
-        }
-    }
-
-    async function autoSaveEcgScan(ecgData) {
-         if (!appState.autoRecord.active || !appState.autoRecord.saveEcg || !appState.autoRecord.directoryHandle || !ecgData || ecgData.samples.length === 0) { return; }
-        try {
-            const timestamp = ecgData.timestamp;
-            const localTimestampStr = getLocalIsoString(timestamp);
-            const filename = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
-            const fileHandle = await appState.autoRecord.directoryHandle.getFileHandle(filename, { create: true });
-            const samplesToSave = new Int32Array(ecgData.samples);
-            const saveData = { 
-                timestamp: localTimestampStr,
-                sampleRate: appState.ecg.sampleRate, 
-                uV_per_div: appState.ecg.uV_per_div, 
-                samples_base64: arrayBufferToBase64(samplesToSave.buffer) 
-            };
-            const jsonString = JSON.stringify(saveData, null, 2);
-            const writable = await fileHandle.createWritable();
-            await writable.write(jsonString);
-            await writable.close();
-            console.log(`ECG salvo automaticamente: ${filename}`);
-        } catch (error) {
-            console.error('Falha ao salvar ECG automaticamente:', error);
-            if (error.name === 'NotAllowedError') { alert('A permissão para salvar arquivos foi perdida. A gravação automática foi interrompida.'); stopAutoRecording(); }
-        }
-    }
-
-    async function logBpmData() {
-        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm || !appState.autoRecord.bpmFileHandle) { return; }
-        const requiredSamples = appState.ecg.sampleRate * 2;
-        if (appState.ecg.rollingBuffer.length < requiredSamples) { return; }
-        const bpmValue = calculateBpmFromEcg([...appState.ecg.rollingBuffer], appState.ecg.sampleRate, appState.config.ecg.bpmAveragePeriod);
-        if (bpmValue === null) { return; }
-        try {
-            const timestamp = getLocalIsoString(new Date());
-            const roundedBpm = Math.round(bpmValue);
-            const line = `${timestamp},${roundedBpm}\n`;
-            const writable = await appState.autoRecord.bpmFileHandle.createWritable({ keepExistingData: true });
-            const file = await appState.autoRecord.bpmFileHandle.getFile();
-            if (file.size === 0) { await writable.write('timestamp,bpm\n'); }
-            await writable.seek(file.size);
-            await writable.write(line);
-            await writable.close();
-        } catch (error) {
-            console.error('Falha ao registrar BPM:', error);
-             if (error.name === 'NotAllowedError') { alert('A permissão para salvar arquivos foi perdida. A gravação automática foi interrompida.'); stopAutoRecording(); }
-        }
-    }
-
-    function startBpmLogInterval() {
-        if (appState.autoRecord.bpmLogInterval) { clearInterval(appState.autoRecord.bpmLogInterval); }
-        if (!appState.autoRecord.active || !appState.autoRecord.saveBpm) { return; }
-        const periodMs = appState.config.ecg.bpmAveragePeriod > 0 ? appState.config.ecg.bpmAveragePeriod * 1000 : 2000;
-        appState.autoRecord.bpmLogInterval = setInterval(logBpmData, periodMs);
-    }
-
+    // Inicia a aplicação
     init();
 });
