@@ -110,6 +110,33 @@
                     <input type="range" id="slider-uv" min="100" max="3000" step="50" value="1000">
                 </fieldset>
                 <fieldset>
+                    <legend>Filtro de ECG</legend>
+                    <p>Selecione o tipo de filtragem aplicada ao sinal:</p>
+
+                    <label>
+                        <input type="radio" name="ecg-filter" value="none" checked>
+                        Nenhum (dados brutos)
+                    </label>
+                    <label>
+                        <input type="radio" name="ecg-filter" value="butter2">
+                        Butterworth 2ª ordem (0.5–40 Hz)
+                    </label>
+                    <label>
+                        <input type="radio" name="ecg-filter" value="butter4">
+                        Butterworth 4ª ordem (0.5–40 Hz)
+                    </label>
+                    <label>
+                        <input type="radio" name="ecg-filter" value="movavg">
+                        Média móvel 5 amostras
+                    </label>
+                    <label>
+                        <input type="radio" name="ecg-filter" value="savitzky"> Savitzky–Golay (11 amostras)
+                    </label>
+                    <label>
+                        <input type="radio" name="ecg-filter" value="fir35"> FIR passa-baixa 100 Hz (21 coef)
+                    </label>
+                </fieldset>
+                <fieldset>
                     <legend>Gravação Automática</legend>
                     <button id="btn-auto-record">Iniciar Gravação</button>
                     <div class="recording-options">

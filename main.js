@@ -113,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ecg: {
                 larguraTemporal: 10,
                 numLinhas: 5,
+                filterMode: 'none', // 'none', 'butter2', 'butter4', 'movavg'
             }
         },
 
@@ -323,6 +324,120 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // =================================================================================
+    // --- FILTROS DIGITAIS DE ECG ---
+    // =================================================================================
+
+    const ecgFilterState = {
+        butter2: { x1: 0, x2: 0, y1: 0, y2: 0 },
+        butter4a: { x1: 0, x2: 0, y1: 0, y2: 0 },
+        butter4b: { x1: 0, x2: 0, y1: 0, y2: 0 },
+        movavg: [],
+        savitzky: [],
+        fir: {
+            buffer: new Array(101).fill(0),
+            index: 0
+        }
+    };
+
+    // ------------------------------
+    // Butterworth 2ª e 4ª ordem
+    // ------------------------------
+    const coeffsButter2 = {
+        b0: 0.945350, b1: -1.890509, b2: 0.945350,
+        a1: -1.889033, a2: 0.894874
+    };
+    const coeffsButter4a = { b0: 0.989283, b1: -1.978566, b2: 0.989283, a1: -1.977786, a2: 0.978783 };
+    const coeffsButter4b = { b0: 1.000000, b1: -2.000000, b2: 1.000000, a1: -1.997955, a2: 0.997956 };
+
+    // Função genérica de biquad
+    function applyBiquad(x, coeffs, state) {
+        const y = coeffs.b0*x + coeffs.b1*state.x1 + coeffs.b2*state.x2 - coeffs.a1*state.y1 - coeffs.a2*state.y2;
+        state.x2 = state.x1; state.x1 = x;
+        state.y2 = state.y1; state.y1 = y;
+        return y;
+    }
+
+    // ------------------------------
+    // Savitzky–Golay 11 amostras, ordem 3
+    // ------------------------------
+    const savitzkyCoeffs = [-36, 9, 44, 69, 84, 89, 84, 69, 44, 9, -36].map(c => c / 429);
+    function filterEcgSavitzky(x) {
+        const buf = ecgFilterState.savitzky;
+        buf.push(x);
+        if (buf.length < 11) return x; // período inicial
+        if (buf.length > 11) buf.shift();
+
+        let y = 0;
+        for (let i = 0; i < 11; i++) y += buf[i] * savitzkyCoeffs[i];
+        return y;
+    }
+
+    // FIR passa-baixa 100 Hz (fs = 130 Hz, 21 coef., janela Hamming)
+    // Preserva complexos QRS enquanto atenua ruído de alta frequência
+    const firCoeffs = [
+        -0.006536, -0.011789, -0.010562,  0.003759,  0.032708,
+         0.073068,  0.118046,  0.158111,  0.184487,  0.191429,
+         0.184487,  0.158111,  0.118046,  0.073068,  0.032708,
+         0.003759, -0.010562, -0.011789, -0.006536
+    ];
+
+    if (!ecgFilterState.fir)
+        ecgFilterState.fir = { buffer: new Float32Array(firCoeffs.length).fill(0), index: 0, initialized: false };
+
+    function filterEcgFIR(x) {
+        const s = ecgFilterState.fir;
+
+        // Inicializa se necessário
+        if (!s.buffer) {
+            s.buffer = new Float32Array(firCoeffs.length).fill(x);
+            s.index = 0;
+        }
+
+        s.buffer[s.index] = x;
+
+        // Convolução circular
+        let y = 0;
+        let j = s.index;
+        for (let i = 0; i < firCoeffs.length; i++) {
+            y += firCoeffs[i] * s.buffer[j];
+            j = (j - 1 + firCoeffs.length) % firCoeffs.length;
+        }
+
+        s.index = (s.index + 1) % firCoeffs.length;
+        return y;
+    }
+
+    // ------------------------------
+    // Filtro principal de despacho
+    // ------------------------------
+    function filterEcgSample(x) {
+        const mode = appState.config.ecg.filterMode;
+
+        switch (mode) {
+            case 'butter2':
+                return applyBiquad(x, coeffsButter2, ecgFilterState.butter2);
+
+            case 'butter4':
+                const y1 = applyBiquad(x, coeffsButter4a, ecgFilterState.butter4a);
+                return applyBiquad(y1, coeffsButter4b, ecgFilterState.butter4b);
+
+            case 'movavg':
+                const buf = ecgFilterState.movavg;
+                buf.push(x);
+                if (buf.length > 5) buf.shift();
+                return buf.reduce((a, b) => a + b, 0) / buf.length;
+
+            case 'savitzky':
+                return filterEcgSavitzky(x);
+
+            case 'fir35':
+                return filterEcgFIR(x);
+
+            default:
+                return x; // none (bruto)
+        }
+    }
 
     // =================================================================================
     // --- PROCESSAMENTO DE DADOS E ALGORITMOS ---
@@ -335,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (let i = 10; i < data.byteLength; i += 3) {
             const rawSample = (data.getInt8(i + 2) << 16) | (data.getUint8(i + 1) << 8) | data.getUint8(i);
-            newSamples.push(rawSample);
+            newSamples.push(filterEcgSample(rawSample));
         }
 
         // Popula os buffers para diferentes finalidades
@@ -512,8 +627,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
 
-        ctx.fillText(`${appState.ecg.uV_per_div} µV/div`, 10, height + margin - 15);
-        ctx.fillText('1 s/div', 10, height + margin - 2);
+        ctx.fillText(`${Math.round(appState.ecg.uV_per_div/10)} µV/div`, 10, height + margin - 15);
+        ctx.fillText('0,1 s/div', 10, height + margin - 2);
 
     }
 
@@ -532,6 +647,37 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillText(date, width - 10, height + margin - 2);
     }
 
+    function drawFilterLegend() {
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const margin = 10;
+        
+        // Determina qual filtro mostrar baseado no modo de exibição
+        let filterMode = appState.config.ecg.filterMode;
+        if (appState.displayMode === 'loaded' && appState.ecg.loadedData) {
+            filterMode = appState.ecg.loadedData.filterMode || 'none';
+        } else if (appState.displayMode === 'last' && appState.ecg.lastFullEcg.samples.length > 0) {
+            // Para 'last', usa o filtro que estava ativo durante a gravação
+            filterMode = appState.config.ecg.filterMode;
+        }
+
+        // Texto amigável para exibir
+        const legendText = {
+            none: 'Filtro: Nenhum (Bruto)',
+            butter2: 'Filtro: Butterworth 2ª ordem (0.5–40 Hz)',
+            butter4: 'Filtro: Butterworth 4ª ordem (0.5–40 Hz)',
+            movavg: 'Filtro: Média móvel (5 amostras)',
+            savitzky: 'Filtro: Savitzky–Golay (11 pts, ordem 3)',
+            fir35: 'Filtro: FIR passa-baixa (100 Hz, 21 coef.)',
+        }[filterMode] || 'Filtro: —';
+        
+        ctx.fillStyle = '#222';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(legendText, margin + 8, margin - 30);
+    }
+
     function drawLoop() {
         if (appState.displayMode !== 'live' || !appState.streamAtivo) {
             appState.ecg.desenhando = false;
@@ -542,6 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.ecg.needsReset) {
             drawGrid();
             drawTimestamp(appState.ecg.startTimestamp);
+            drawFilterLegend();
             appState.ecg.currentX = 0;
             appState.ecg.currentLine = 0;
             appState.ecg.lastY = null;
@@ -589,6 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     appState.ecg.startTimestamp = new Date();
                     drawGrid();
                     drawTimestamp(appState.ecg.startTimestamp);
+                    drawFilterLegend();
                     appState.ecg.scanBuffer = [];
                 }
                 ctx.beginPath();
@@ -612,6 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         drawGrid();
         drawTimestamp(timestamp);
+        drawFilterLegend();
 
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
@@ -719,6 +868,7 @@ document.addEventListener('DOMContentLoaded', () => {
             timestamp: localTimestampStr,
             sampleRate: appState.ecg.sampleRate,
             uV_per_div: appState.ecg.uV_per_div,
+            filterMode: appState.config.ecg.filterMode, // ← ADICIONADO
             samples_base64: arrayBufferToBase64(new Int32Array(dataToSave.samples).buffer)
         };
 
@@ -773,7 +923,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     samples: base64ToTypedArray(data.samples_base64),
                     timestamp: new Date(data.timestamp),
                     sampleRate: data.sampleRate || 130,
-                    uV_per_div: data.uV_per_div || 1000
+                    uV_per_div: data.uV_per_div || 1000,
+                    filterMode: data.filterMode || 'none',
                 };
                 appState.displayMode = 'loaded';
                 redrawStaticEcg();
@@ -910,6 +1061,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 timestamp: localTimestampStr,
                 sampleRate: appState.ecg.sampleRate,
                 uV_per_div: appState.ecg.uV_per_div,
+                filterMode: appState.config.ecg.filterMode, // ← ADICIONADO
                 samples_base64: arrayBufferToBase64(new Int32Array(ecgData.samples).buffer)
             };
             
@@ -1155,6 +1307,20 @@ document.addEventListener('DOMContentLoaded', () => {
         resizeCanvas();
         //const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
         bpmAvgLabel.textContent = `${appState.autoRecord.bpmIntervalSeconds}s`;
+    
+        // Controles do filtro de ECG
+        const radioFilter = document.querySelectorAll('input[name="ecg-filter"]');
+        radioFilter.forEach(r => {
+            r.addEventListener('change', (e) => {
+                appState.config.ecg.filterMode = e.target.value;
+                console.log('Filtro ECG selecionado:', appState.config.ecg.filterMode);
+                // Reinicia buffers para evitar transientes
+                Object.values(ecgFilterState).forEach(st => {
+                    if (Array.isArray(st)) st.length = 0;
+                    else Object.keys(st).forEach(k => st[k] = 0);
+                });
+            });
+        });    
     }
 
     // Inicia a aplicação
