@@ -343,12 +343,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // ------------------------------
     // Butterworth 2ª e 4ª ordem
     // ------------------------------
+    // Butterworth 2ª ordem passa-banda 0.5-40 Hz @ fs=130 Hz
     const coeffsButter2 = {
-        b0: 0.945350, b1: -1.890509, b2: 0.945350,
-        a1: -1.889033, a2: 0.894874
+        b0: 0.268512718,
+        b1: 0,
+        b2: -0.268512718,
+        a1: -1.45583296,
+        a2: 0.462974564
     };
-    const coeffsButter4a = { b0: 0.989283, b1: -1.978566, b2: 0.989283, a1: -1.977786, a2: 0.978783 };
-    const coeffsButter4b = { b0: 1.000000, b1: -2.000000, b2: 1.000000, a1: -1.997955, a2: 0.997956 };
+    // Butterworth 4ª ordem = cascata de dois biquads passa-banda 0.5-40 Hz @ fs=130 Hz
+    // Primeiro estágio
+    const coeffsButter4a = {
+        b0: 0.29289579,
+        b1: 0,
+        b2: -0.29289579,
+        a1: -1.60744017,
+        a2: 0.68966567
+    };
+
+    // Segundo estágio (seção 2)
+    const coeffsButter4b = {
+        b0: 0.29289579,
+        b1: 0,
+        b2: -0.29289579,
+        a1: -1.30475775,
+        a2: 0.22861398
+    };
 
     // Função genérica de biquad
     function applyBiquad(x, coeffs, state) {
@@ -419,8 +439,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return applyBiquad(x, coeffsButter2, ecgFilterState.butter2);
 
             case 'butter4':
-                const y1 = applyBiquad(x, coeffsButter4a, ecgFilterState.butter4a);
-                return applyBiquad(y1, coeffsButter4b, ecgFilterState.butter4b);
+                const y1 = applyBiquad(x, coeffsButter2, ecgFilterState.butter2);
+                return applyBiquad(y1, coeffsButter2, ecgFilterState.butter2);
 
             case 'movavg':
                 const buf = ecgFilterState.movavg;
@@ -543,68 +563,80 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2 * margin);
         
-        // --- Linhas menores (grade fina) ---
+        // Constantes do padrão ECG: 25 mm = 1 segundo
+        const mmPerSecond = 25;
+        const pixelsPerMm = pixelsPerSecond / mmPerSecond;
+        
+        // --- Grade fina: 1 mm ---
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 0.5;
 
-        const minorHorizontalStep = lineHeight / 10;
-        for (let y = minorHorizontalStep; y < height; y += minorHorizontalStep) {
+        // Linhas horizontais (1 mm)
+        for (let mm = 1; mm < height / pixelsPerMm; mm++) {
+            const y = mm * pixelsPerMm;
+            if (y >= height) break;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
 
-        const minorVerticalStep = pixelsPerSecond / 10;
-        for (let x = minorVerticalStep; x < width; x += minorVerticalStep) {
+        // Linhas verticais (1 mm) - exceto as de 1 segundo
+        for (let mm = 1; mm < secs * mmPerSecond; mm++) {
+            if (mm % mmPerSecond === 0) continue; // Pula as linhas de segundo
+            const x = mm * pixelsPerMm;
             ctx.beginPath();
             ctx.moveTo(x, 0);
             ctx.lineTo(x, height);
             ctx.stroke();
         }
 
-        // --- Linhas verticais médias ---
-        ctx.strokeStyle = '#cccccc';
-        ctx.lineWidth = 0.75;
+        // --- Grade grossa: 5 mm ---
+        ctx.strokeStyle = '#999999';
+        ctx.lineWidth = 1.25;
 
-        for (let x = pixelsPerSecond / 2; x < width; x += pixelsPerSecond) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, height);
-            ctx.stroke();
-        }
-
-        // --- Linhas maiores (grade principal) ---
-        ctx.strokeStyle = '#aaaaaa';
-        ctx.lineWidth = 1;
-
-        // Linhas horizontais principais
-        for (let i = 1; i < numLinhas; i++) {
-            const y = i * lineHeight;
+        // Linhas horizontais (5 mm)
+        for (let mm = 5; mm < height / pixelsPerMm; mm += 5) {
+            const y = mm * pixelsPerMm;
+            if (y >= height) break;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
             ctx.stroke();
         }
 
-        // Linhas verticais principais
-        for (let i = 1; i < secs; i++) {
-            const x = i * pixelsPerSecond;
+        // Linhas verticais (5 mm) - exceto as de 1 segundo
+        for (let mm = 5; mm < secs * mmPerSecond; mm += 5) {
+            if (mm % mmPerSecond === 0) continue; // Pula as linhas de segundo
+            const x = mm * pixelsPerMm;
             ctx.beginPath();
             ctx.moveTo(x, 0);
             ctx.lineTo(x, height);
             ctx.stroke();
         }
 
-        // --- Barra de referência de tempo ---
-        ctx.strokeStyle = '#e60012';
-        ctx.fillStyle = '#e60012';
+        // --- Linhas de 1 segundo (verde musgo) ---
+        ctx.strokeStyle = '#41c230ff';
+        ctx.lineWidth = 1.5;
+
+        for (let sec = 1; sec < secs; sec++) {
+            const x = sec * pixelsPerSecond;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+        }
+
+        // --- Barra de referência de tempo (verde musgo) ---
+        ctx.strokeStyle = '#41c230ff';
+        ctx.fillStyle = '#41c230ff';
         ctx.lineWidth = 2;
         ctx.font = '12px sans-serif';
 
-        const barWidth = pixelsPerSecond;
-        const startX = (width - barWidth) / 2;
-        const endX = startX + barWidth;
+        // Encontra a posição central em múltiplo de segundo
+        const centerSec = Math.floor(secs / 2);
+        const startX = centerSec * pixelsPerSecond;
+        const endX = (centerSec + 1) * pixelsPerSecond;
         const barY = height + margin / 2;
         const tickHeight = 8;
 
@@ -619,7 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText('1 s', width / 2, barY + 5);
+        ctx.fillText('1 s', (startX + endX) / 2, barY + 5);
 
         // --- Legendas ---
         ctx.fillStyle = '#1a1a1a';
@@ -627,9 +659,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
 
-        ctx.fillText(`${Math.round(appState.ecg.uV_per_div/10)} µV/div`, 10, height + margin - 15);
-        ctx.fillText('0,1 s/div', 10, height + margin - 2);
-
+        ctx.fillText(`${appState.ecg.uV_per_div / 100} mm/mV`, 10, height + margin - 15);
+        ctx.fillText('25 mm/s', 10, height + margin - 2);
     }
 
     function drawTimestamp(timestamp) {
@@ -1257,7 +1288,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (appState.displayMode !== 'live') redrawStaticEcg();
         });
         sliderUv.addEventListener('input', (e) => {
-            appState.ecg.uV_per_div = parseInt(e.target.value);
+            appState.ecg.uV_per_div = parseInt(e.target.value) * 100;
             uvLabel.textContent = e.target.value;
             appState.ecg.needsReset = true;
             if (appState.displayMode !== 'live') redrawStaticEcg();
