@@ -327,3 +327,77 @@ input[type="range"] {
     width: 16px; /* Define um tamanho consistente */
     height: 16px;
 }
+
+/* --- Estilos do Indicador de Wake Lock --- */
+.wake-lock-indicator {
+    display: none; /* Oculto por padrão */
+    background-color: rgba(76, 175, 80, 0.15); /* Verde translúcido */
+    border: 1px solid #4CAF50;
+    border-radius: 6px;
+    padding: 8px 15px;
+    margin: 10px auto;
+    width: fit-content;
+    max-width: 90%;
+    text-align: center;
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.wake-lock-indicator.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.wake-lock-icon {
+    font-size: 1.2rem;
+    animation: battery-pulse 2s ease-in-out infinite;
+}
+
+.wake-lock-text {
+    color: #4CAF50;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+/* Animação sutil de pulso no ícone */
+@keyframes battery-pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+/* Animação sutil de brilho no container */
+@keyframes pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
+    }
+}
+
+/* Responsividade para telas menores */
+@media (max-width: 768px) {
+    .wake-lock-text {
+        font-size: 0.85rem;
+    }
+    
+    .wake-lock-indicator {
+        padding: 6px 12px;
+    }
+}
+
+@media (max-width: 400px) {
+    .wake-lock-indicator {
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .wake-lock-text {
+        font-size: 0.8rem;
+    }
+}

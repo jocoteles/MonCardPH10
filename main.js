@@ -78,6 +78,65 @@ document.addEventListener('DOMContentLoaded', () => {
     const BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
     const BATTERY_CHARACTERISTIC_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
 
+    // =================================================================================
+    // --- WAKE LOCK MANAGEMENT ---
+    // =================================================================================
+
+    async function requestWakeLock() {
+        if (!('wakeLock' in navigator)) {
+            console.warn('Wake Lock API não suportada neste navegador');
+            return false;
+        }
+
+        try {
+            appState.wakeLock.instance = await navigator.wakeLock.request('screen');
+            appState.wakeLock.isActive = true;
+            
+            console.log('✅ Wake Lock ativado - tela permanecerá ligada');
+            
+            // ← MOSTRAR INDICADOR
+            const indicator = document.getElementById('wake-lock-indicator');
+            if (indicator) {
+                indicator.classList.add('active');
+            }
+            
+            // Listener para quando o wake lock for liberado
+            appState.wakeLock.instance.addEventListener('release', () => {
+                console.log('Wake Lock liberado');
+                appState.wakeLock.isActive = false;
+                
+                // ← OCULTAR INDICADOR
+                if (indicator) {
+                    indicator.classList.remove('active');
+                }
+            });
+            
+            return true;
+        } catch (err) {
+            console.error(`Erro ao ativar Wake Lock: ${err.name}, ${err.message}`);
+            return false;
+        }
+    }
+
+    async function releaseWakeLock() {
+        if (appState.wakeLock.instance !== null) {
+            try {
+                await appState.wakeLock.instance.release();
+                appState.wakeLock.instance = null;
+                appState.wakeLock.isActive = false;
+                
+                // ← OCULTAR INDICADOR
+                const indicator = document.getElementById('wake-lock-indicator');
+                if (indicator) {
+                    indicator.classList.remove('active');
+                }
+                
+                console.log('Wake Lock liberado manualmente');
+            } catch (err) {
+                console.error('Erro ao liberar Wake Lock:', err);
+            }
+        }
+    }
 
     // =================================================================================
     // --- ESTADO GLOBAL DA APLICAÇÃO ---
@@ -96,6 +155,11 @@ document.addEventListener('DOMContentLoaded', () => {
         displayMode: 'live',
         lastReceivedHR: null,
         hrSamples: [],
+
+        wakeLock: {
+            instance: null,
+            isActive: false
+        },
 
         autoRecord: {
             active: false,
@@ -996,6 +1060,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAutoRecord.classList.add('recording');
             btnAutoRecord.textContent = 'Interromper Gravação Automática';
             
+            await requestWakeLock();
+
             appState.ecg.autoSaveBuffer = []; // Limpa o buffer de gravação
             appState.hrSamples = [];
             startAutoSaveInterval(); // Inicia o processo de salvamento de JSON
@@ -1029,6 +1095,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.streamAtivo) {
             await stopStream();
         }
+
+        await releaseWakeLock();
 
         if (appState.autoRecord.autoSaveInterval) {
             clearInterval(appState.autoRecord.autoSaveInterval);
@@ -1353,6 +1421,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });    
     }
+
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && 
+            appState.autoRecord.active && 
+            !appState.wakeLock.isActive) {
+            console.log('App voltou ao foco - reativando Wake Lock');
+            await requestWakeLock();
+        }
+    });
 
     // Inicia a aplicação
     init();
