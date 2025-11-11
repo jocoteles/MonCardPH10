@@ -1054,18 +1054,36 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const dirHandle = await window.showDirectoryPicker();
             appState.autoRecord.directoryHandle = dirHandle;
-            appState.autoRecord.bpmFileHandle = await dirHandle.getFileHandle('registro_bpm.csv', { create: true });
-            
+
+            // --- INÍCIO DA MODIFICAÇÃO ---
+
+            // 1. Obter o timestamp atual no formato local (ex: "2025-11-11T10:30:05")
+            const timestamp = getLocalIsoString(new Date());
+
+            // 2. Formatar o timestamp para ser seguro para nomes de arquivo,
+            //    substituindo caracteres inválidos como ':' e 'T' por '-'
+            //    (ex: "2025-11-11-10-30-05")
+            const filenameTimestamp = timestamp.replace(/[:T]/g, '-');
+
+            // 3. Criar o nome de arquivo dinâmico para o CSV de BPM
+            const bpmFilename = `fc-${filenameTimestamp}.csv`;
+
+            // 4. Usar o novo nome do arquivo ao obter o manipulador de arquivo (file handle)
+            appState.autoRecord.bpmFileHandle = await dirHandle.getFileHandle(bpmFilename, { create: true });
+            console.log(`Arquivo de BPM será salvo como: ${bpmFilename}`);
+
+            // --- FIM DA MODIFICAÇÃO ---
+
             appState.autoRecord.active = true;
             btnAutoRecord.classList.add('recording');
             btnAutoRecord.textContent = 'Interromper Gravação Automática';
-            
+
             await requestWakeLock();
 
             appState.ecg.autoSaveBuffer = []; // Limpa o buffer de gravação
             appState.hrSamples = [];
             startAutoSaveInterval(); // Inicia o processo de salvamento de JSON
-            
+
             if (!appState.streamAtivo) {
                 console.log("Iniciando stream de dados para gravação automática...");
                 if (appState.modo !== 'ecg') {
@@ -1077,7 +1095,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 startBpmLogInterval();
             }
-            
+
             console.log('✅ Gravação automática iniciada na pasta:', dirHandle.name);
 
         } catch (error) {
