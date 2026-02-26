@@ -1,4 +1,8 @@
-const CACHE_NAME = 'moncardph10-v1.5';
+// ⚠️  IMPORTANTE: incremente CACHE_NAME a cada deploy (ex: v2 → v3).
+//    Isso garante que todos os usuários descartem o cache antigo e
+//    recebam os arquivos atualizados na próxima visita.
+const CACHE_NAME = 'moncardph10-v2';
+
 const urlsToCache = [
   './',
   './index.html',
@@ -17,7 +21,7 @@ self.addEventListener('install', event => {
         console.log('Opened cache:', CACHE_NAME);
         return cache.addAll(urlsToCache);
       })
-      .then(() => self.skipWaiting()) // Force the waiting service worker to become the active one
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -33,16 +37,30 @@ self.addEventListener('activate', event => {
           }
         })
       );
-    }).then(() => self.clients.claim()) // Take control of all open clients immediately
+    }).then(() => self.clients.claim())
   );
 });
 
-// Fetch event: Network-first falling back to cache
+// Fetch event:
+//   - index.html → sempre da rede (nunca do cache), para garantir que
+//     o ponto de entrada seja sempre a versão mais recente.
+//   - demais assets → network-first com fallback para cache (funciona offline).
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  const isHtmlEntry = url.pathname.endsWith('/') ||
+                      url.pathname.endsWith('/index.html');
+
+  if (isHtmlEntry) {
+    // Network-only para o HTML: se offline, mostra mensagem de erro do browser.
+    // Isso evita que uma versão antiga do HTML (e portanto do JS) seja servida.
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Network-first para todos os outros assets
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // If the request is successful, clone it and put it in the cache
         if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then(cache => {
@@ -52,7 +70,6 @@ self.addEventListener('fetch', event => {
         return response;
       })
       .catch(() => {
-        // If network fails, serve from cache
         return caches.match(event.request);
       })
   );
