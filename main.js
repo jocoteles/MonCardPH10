@@ -58,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Alertas de Frequência
     const chkAlertasEnabled = document.getElementById('chk-alertas-enabled');
     const alertThresholdList = document.getElementById('alert-threshold-list');
-    const alertRangeCount = document.getElementById('alert-range-count');
     const btnAddAlertRange = document.getElementById('btn-add-alert-range');
     const btnResetAlerts = document.getElementById('btn-reset-alerts');
 
@@ -376,8 +375,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         normalizeAlertRanges();
         const ranges = appState.alerts.ranges;
-
-        alertRangeCount.textContent = `${ranges.length} / ${ALERT_MAX_RANGES}`;
 
         alertThresholdList.innerHTML = '';
         ranges.forEach((range, index) => {
