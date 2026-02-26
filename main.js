@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         voiceName: '',
         lang: 'pt-BR',
         volume: 1,
-        rate: 1,
+        rate: 2,
         pitch: 1
     };
 
@@ -581,7 +581,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const now = Date.now();
         const intervalMs = range.intervalSec * 1000;
         if (!range.lastSpokenAt || now - range.lastSpokenAt >= intervalMs) {
-            speakAlert(`BPM ${bpm}`);
+            speakAlert(`${bpm}`);
             range.lastSpokenAt = now;
         }
     }
