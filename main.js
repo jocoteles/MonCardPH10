@@ -100,26 +100,26 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             appState.wakeLock.instance = await navigator.wakeLock.request('screen');
             appState.wakeLock.isActive = true;
-            
+
             console.log('✅ Wake Lock ativado - tela permanecerá ligada');
-            
+
             // ← MOSTRAR INDICADOR
             const indicator = document.getElementById('wake-lock-indicator');
             if (indicator) {
                 indicator.classList.add('active');
             }
-            
+
             // Listener para quando o wake lock for liberado
             appState.wakeLock.instance.addEventListener('release', () => {
                 console.log('Wake Lock liberado');
                 appState.wakeLock.isActive = false;
-                
+
                 // ← OCULTAR INDICADOR
                 if (indicator) {
                     indicator.classList.remove('active');
                 }
             });
-            
+
             return true;
         } catch (err) {
             console.error(`Erro ao ativar Wake Lock: ${err.name}, ${err.message}`);
@@ -133,13 +133,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 await appState.wakeLock.instance.release();
                 appState.wakeLock.instance = null;
                 appState.wakeLock.isActive = false;
-                
+
                 // ← OCULTAR INDICADOR
                 const indicator = document.getElementById('wake-lock-indicator');
                 if (indicator) {
                     indicator.classList.remove('active');
                 }
-                
+
                 console.log('Wake Lock liberado manualmente');
             } catch (err) {
                 console.error('Erro ao liberar Wake Lock:', err);
@@ -681,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!appState.ecg.desenhando) {
                     requestAnimationFrame(drawLoop);
                 }
-                
+
                 // ← ADICIONAR: Intervalo simples para atualizar display
                 if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
                 bpmUpdateInterval = setInterval(() => {
@@ -794,7 +794,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Função genérica de biquad
     function applyBiquad(x, coeffs, state) {
-        const y = coeffs.b0*x + coeffs.b1*state.x1 + coeffs.b2*state.x2 - coeffs.a1*state.y1 - coeffs.a2*state.y2;
+        const y = coeffs.b0 * x + coeffs.b1 * state.x1 + coeffs.b2 * state.x2 - coeffs.a1 * state.y1 - coeffs.a2 * state.y2;
         state.x2 = state.x1; state.x1 = x;
         state.y2 = state.y1; state.y1 = y;
         return y;
@@ -818,10 +818,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // FIR passa-baixa 100 Hz (fs = 130 Hz, 21 coef., janela Hamming)
     // Preserva complexos QRS enquanto atenua ruído de alta frequência
     const firCoeffs = [
-        -0.006536, -0.011789, -0.010562,  0.003759,  0.032708,
-         0.073068,  0.118046,  0.158111,  0.184487,  0.191429,
-         0.184487,  0.158111,  0.118046,  0.073068,  0.032708,
-         0.003759, -0.010562, -0.011789, -0.006536
+        -0.006536, -0.011789, -0.010562, 0.003759, 0.032708,
+        0.073068, 0.118046, 0.158111, 0.184487, 0.191429,
+        0.184487, 0.158111, 0.118046, 0.073068, 0.032708,
+        0.003759, -0.010562, -0.011789, -0.006536
     ];
 
     if (!ecgFilterState.fir)
@@ -942,10 +942,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = event.target.value;
         const flags = data.getUint8(0);
         const hrFormatIs16bit = (flags & 0x01) !== 0;
-        
+
         const hr = hrFormatIs16bit ? data.getUint16(1, true) : data.getUint8(1);
         appState.lastReceivedHR = hr;
-        
+
         if (appState.autoRecord.active && appState.autoRecord.saveBpm) {
             appState.hrSamples.push(hr);
         }
@@ -953,7 +953,7 @@ document.addEventListener('DOMContentLoaded', () => {
         processBpmAlert(hr);
     }
 
-    
+
     // =================================================================================
     // --- LÓGICA DE RENDERIZAÇÃO NO CANVAS ---
     // =================================================================================
@@ -988,11 +988,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const margin = lineHeight / 2;
 
         ctx.clearRect(0, -margin, canvas.clientWidth, canvas.clientHeight + 2 * margin);
-        
+
         // Constantes do padrão ECG: 25 mm = 1 segundo
         const mmPerSecond = 25;
         const pixelsPerMm = pixelsPerSecond / mmPerSecond;
-        
+
         // --- Grade fina: 1 mm ---
         ctx.strokeStyle = '#e0e0e0';
         ctx.lineWidth = 0.5;
@@ -1108,7 +1108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const width = canvas.clientWidth;
         const height = canvas.clientHeight;
         const margin = 10;
-        
+
         // Determina qual filtro mostrar baseado no modo de exibição
         let filterMode = appState.config.ecg.filterMode;
         if (appState.displayMode === 'loaded' && appState.ecg.loadedData) {
@@ -1127,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', () => {
             savitzky: 'Filtro: Savitzky–Golay (11 pts, ordem 3)',
             fir35: 'Filtro: FIR passa-baixa (100 Hz, 21 coef.)',
         }[filterMode] || 'Filtro: —';
-        
+
         ctx.fillStyle = '#222';
         ctx.font = '13px sans-serif';
         ctx.textAlign = 'left';
@@ -1242,7 +1242,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 ctx.lineTo(currentX, currentY);
             }
-            
+
             currentX += pixelsPerSample;
             lastY = currentY;
 
@@ -1319,7 +1319,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Não há dados de ECG visíveis na tela para salvar.");
             return;
         }
-        
+
         const localTimestampStr = getLocalIsoString(dataToSave.timestamp);
         const saveData = {
             timestamp: localTimestampStr,
@@ -1333,7 +1333,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        
+
         a.href = url;
         a.download = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
         document.body.appendChild(a);
@@ -1515,7 +1515,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Verifica a cada 2 segundos se há dados suficientes para salvar um arquivo
         appState.autoRecord.autoSaveInterval = setInterval(() => {
             const samplesPerScan = appState.config.ecg.larguraTemporal * appState.config.ecg.numLinhas * appState.ecg.sampleRate;
-            
+
             if (appState.ecg.autoSaveBuffer.length >= samplesPerScan) {
                 const samplesToSave = appState.ecg.autoSaveBuffer.splice(0, samplesPerScan);
                 const scanDurationMs = (samplesPerScan / appState.ecg.sampleRate) * 1000;
@@ -1535,7 +1535,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const localTimestampStr = getLocalIsoString(ecgData.timestamp);
             const filename = `ECG_${localTimestampStr.replace(/[:T]/g, '-')}.json`;
             const fileHandle = await appState.autoRecord.directoryHandle.getFileHandle(filename, { create: true });
-            
+
             const saveData = {
                 timestamp: localTimestampStr,
                 sampleRate: appState.ecg.sampleRate,
@@ -1543,7 +1543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 filterMode: appState.config.ecg.filterMode, // ← ADICIONADO
                 samples_base64: arrayBufferToBase64(new Int32Array(ecgData.samples).buffer)
             };
-            
+
             const jsonString = JSON.stringify(saveData, null, 2);
             const writable = await fileHandle.createWritable();
             await writable.write(jsonString);
@@ -1564,42 +1564,42 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(appState.autoRecord.bpmLogInterval);
         }
         if (!appState.autoRecord.active || !appState.autoRecord.saveBpm) return;
-        
+
         const intervalMs = appState.autoRecord.bpmIntervalSeconds * 1000;
         appState.autoRecord.bpmLogInterval = setInterval(logBpmData, intervalMs);
     }
 
-   async function logBpmData() {
+    async function logBpmData() {
         if (!appState.autoRecord.active || !appState.autoRecord.saveBpm || !appState.autoRecord.bpmFileHandle) {
             return;
         }
-        
+
         if (appState.hrSamples.length === 0) {
             console.warn('Nenhuma amostra de HR coletada no intervalo.');
             return;
         }
-        
+
         const numSamples = appState.hrSamples.length;
         const sumHR = appState.hrSamples.reduce((acc, val) => acc + val, 0);
         const avgHR = Math.round(sumHR / numSamples);
-        
-        appState.hrSamples = []; 
-        
+
+        appState.hrSamples = [];
+
         try {
             const timestamp = getLocalIsoString(new Date());
             const line = `${timestamp},${avgHR}\n`;
-            
+
             const writable = await appState.autoRecord.bpmFileHandle.createWritable({ keepExistingData: true });
             const file = await appState.autoRecord.bpmFileHandle.getFile();
-            
+
             if (file.size === 0) {
                 await writable.write('timestamp,bpm\n');
             }
-            
+
             await writable.seek(file.size);
             await writable.write(line);
             await writable.close();
-            
+
             console.log(`BPM médio registrado: ${avgHR} (baseado em ${numSamples} amostras)`);
 
         } catch (error) {
@@ -1656,11 +1656,47 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; padding: 20px; font-size: 1.2rem;"><p>Você precisa concordar com os termos para utilizar esta aplicação.</p></div>`;
         });
 
-        // Service Worker
+        // Service Worker - Registro e Atualização
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(err => {
-                console.error('Falha no registro do Service Worker:', err);
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then(reg => {
+                    console.log('Service Worker registrado com sucesso:', reg.scope);
+
+                    // Verifica se há uma atualização disponível ao carregar
+                    if (reg.waiting) {
+                        updateAvailable(reg.waiting);
+                    }
+
+                    // Escuta por novas atualizações que chegam enquanto o app está aberto
+                    reg.addEventListener('updatefound', () => {
+                        const newWorker = reg.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                updateAvailable(newWorker);
+                            }
+                        });
+                    });
+                }).catch(err => {
+                    console.error('Falha no registro do Service Worker:', err);
+                });
+
+                // Recarrega a página quando o novo Service Worker assume o controle
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        window.location.reload();
+                        refreshing = true;
+                    }
+                });
             });
+        }
+
+        function updateAvailable(worker) {
+            // Aqui poderíamos usar um brinde (toast) ou modal mais elegante.
+            // Para simplicidade e eficácia imediata, usamos confirm().
+            if (confirm('Uma nova versão do aplicativo está disponível. Deseja atualizar agora?')) {
+                worker.postMessage('skipWaiting');
+            }
         }
 
         // Navegação principal
@@ -1781,7 +1817,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         renderAlertRanges();
-        
+
         // Gravação Automática
         btnAutoRecord.addEventListener('click', handleAutoRecordToggle);
         chkSaveEcg.addEventListener('change', (e) => {
@@ -1818,7 +1854,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resizeCanvas();
         //const initialBpmPeriod = appState.config.ecg.bpmAveragePeriod;
         bpmAvgLabel.textContent = `${appState.autoRecord.bpmIntervalSeconds}s`;
-    
+
         // Controles do filtro de ECG
         const radioFilter = document.querySelectorAll('input[name="ecg-filter"]');
         radioFilter.forEach(r => {
@@ -1831,12 +1867,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     else Object.keys(st).forEach(k => st[k] = 0);
                 });
             });
-        });    
+        });
     }
 
     document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'visible' && 
-            appState.autoRecord.active && 
+        if (document.visibilityState === 'visible' &&
+            appState.autoRecord.active &&
             !appState.wakeLock.isActive) {
             console.log('App voltou ao foco - reativando Wake Lock');
             await requestWakeLock();
