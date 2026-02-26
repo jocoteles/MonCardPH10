@@ -40,6 +40,12 @@ O projeto foi desenvolvido em JavaScript puro (vanilla), sem frameworks, com foc
     - Um registro contínuo da **Frequência Cardíaca** em um único arquivo `.csv`, ideal para análise de séries temporais.
     - Ambos os formatos simultaneamente.
 
+### Alertas de Frequência
+- **Faixas configuráveis de BPM:** Defina limiares com intervalos de aviso e até 6 faixas no total.
+- **Aviso por voz nativo do navegador:** Usa `speechSynthesis` para falar o BPM atual ou o limiar ao cruzar uma faixa.
+- **Avisos por intervalo e por cruzamento:** Alerta periódico enquanto estiver na faixa e aviso imediato ao cruzar um limiar.
+- **Persistência local:** Configurações ficam salvas em `localStorage`.
+
 ### Progressive Web App (PWA)
 - **Instalável:** Pode ser "instalado" na tela inicial de dispositivos móveis e desktops para acesso rápido.
 - **Funcionalidade Offline:** Permite carregar e visualizar arquivos de ECG previamente salvos mesmo sem conexão com a internet.
