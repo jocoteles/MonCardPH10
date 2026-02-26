@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const alertMinLabel = document.getElementById('alert-min-label');
     const alertMaxLabel = document.getElementById('alert-max-label');
     const btnAddAlertRange = document.getElementById('btn-add-alert-range');
+    const btnResetAlerts = document.getElementById('btn-reset-alerts');
 
     // Gravação Automática
     const btnAutoRecord = document.getElementById('btn-auto-record');
@@ -173,7 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { upper: 100, intervalSec: 40 },
         { upper: 120, intervalSec: 20 },
         { upper: 130, intervalSec: 10 },
-        { upper: 150, intervalSec: 5 }
+        { upper: 150, intervalSec: 5 },
+        { upper: 250, intervalSec: 30 }
     ];
 
     // CONFIGURE AQUI a voz do alerta: voiceName, idioma (lang), volume, velocidade (rate) e pitch.
@@ -292,17 +294,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const maxBpm = appState.alerts.maxBpm;
 
         if (ranges.length === 0) {
-            ranges.push({ upper: maxBpm - 1, intervalSec: 30, lastSpokenAt: 0 });
+            ranges.push({ upper: maxBpm, intervalSec: 30, lastSpokenAt: 0 });
             return;
         }
 
         let prevUpper = minBpm;
         for (let i = 0; i < ranges.length; i++) {
-            const maxUpper = maxBpm - 1;
-            const nextUpper = clamp(ranges[i].upper, prevUpper + 1, maxUpper);
-            ranges[i].upper = nextUpper;
+            if (i === ranges.length - 1) {
+                // O último range sempre vai até o máximo
+                ranges[i].upper = maxBpm;
+            } else {
+                const maxUpper = maxBpm - 1;
+                const nextUpper = clamp(ranges[i].upper, prevUpper + 1, maxUpper);
+                ranges[i].upper = nextUpper;
+            }
             ranges[i].intervalSec = clamp(ranges[i].intervalSec, ALERT_MIN_INTERVAL, ALERT_MAX_INTERVAL);
-            prevUpper = nextUpper;
+            prevUpper = ranges[i].upper;
         }
     }
 
@@ -373,25 +380,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         alertMinLabel.textContent = minBpm;
         alertMaxLabel.textContent = maxBpm;
-        alertRangeCount.textContent = `${ranges.length} / ${ALERT_MAX_THRESHOLDS}`;
+        alertRangeCount.textContent = `${ranges.length - 1} / ${ALERT_MAX_THRESHOLDS}`;
 
         alertRangesBar.innerHTML = '';
         let lower = minBpm;
-        rangeUppers.forEach((upper, index) => {
+        ranges.forEach((range, index) => {
             const segment = document.createElement('div');
+            const upper = range.upper;
             const span = Math.max(0, upper - lower);
             segment.className = 'alert-range-seg';
             segment.style.width = `${(span / totalSpan) * 100}%`;
             segment.style.backgroundColor = ALERT_COLORS[index % ALERT_COLORS.length];
-            segment.textContent = `${lower}-${upper}`;
+            // segment.textContent = `${lower}-${upper}`; // REMOVIDO: Texto removido conforme solicitado
             alertRangesBar.appendChild(segment);
             lower = upper;
         });
 
         alertThresholdList.innerHTML = '';
         ranges.forEach((range, index) => {
+            const isLast = index === ranges.length - 1;
             const row = document.createElement('div');
-            row.className = 'alert-threshold-item';
+            row.className = 'alert-threshold-item' + (isLast ? ' is-last' : '');
 
             const dot = document.createElement('span');
             dot.className = 'alert-color-dot';
@@ -400,51 +409,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const bpmGroup = document.createElement('div');
             bpmGroup.className = 'alert-input-group';
-            const bpmLabel = document.createElement('span');
-            bpmLabel.className = 'alert-input-label';
-            bpmLabel.textContent = 'BPM';
             const bpmInput = document.createElement('input');
             bpmInput.type = 'number';
-            bpmInput.className = 'alert-input';
+            bpmInput.className = 'alert-input' + (isLast ? ' readonly' : '');
             bpmInput.value = range.upper;
             bpmInput.min = minBpm + 1;
             bpmInput.max = maxBpm - 1;
-            bpmInput.addEventListener('input', (e) => {
-                const value = parseInt(e.target.value || '0', 10);
-                updateAlertUpper(index, value);
-            });
+            bpmInput.readOnly = isLast;
+            if (!isLast) {
+                bpmInput.addEventListener('change', (e) => {
+                    const value = parseInt(e.target.value || '0', 10);
+                    updateAlertUpper(index, value);
+                });
+            }
             const bpmUnit = document.createElement('span');
             bpmUnit.className = 'alert-input-unit';
-            bpmUnit.textContent = 'bpm';
-            bpmGroup.appendChild(bpmLabel);
+            bpmUnit.textContent = isLast ? 'Teto Máx' : 'bpm';
             bpmGroup.appendChild(bpmInput);
             bpmGroup.appendChild(bpmUnit);
             row.appendChild(bpmGroup);
 
             const intervalGroup = document.createElement('div');
             intervalGroup.className = 'alert-input-group';
-            const intervalLabel = document.createElement('span');
-            intervalLabel.className = 'alert-input-label';
-            intervalLabel.textContent = 'Intervalo';
             const intervalInput = document.createElement('input');
             intervalInput.type = 'number';
             intervalInput.className = 'alert-input';
             intervalInput.value = range.intervalSec;
             intervalInput.min = ALERT_MIN_INTERVAL;
             intervalInput.max = ALERT_MAX_INTERVAL;
-            intervalInput.addEventListener('input', (e) => {
+            intervalInput.addEventListener('change', (e) => {
                 const value = parseInt(e.target.value || '0', 10);
                 updateAlertInterval(index, value);
             });
             const intervalUnit = document.createElement('span');
             intervalUnit.className = 'alert-input-unit';
             intervalUnit.textContent = 'seg';
-            intervalGroup.appendChild(intervalLabel);
             intervalGroup.appendChild(intervalInput);
             intervalGroup.appendChild(intervalUnit);
             row.appendChild(intervalGroup);
 
-            if (ranges.length > 1) {
+            if (ranges.length > 1 && !isLast) {
                 const removeBtn = document.createElement('button');
                 removeBtn.type = 'button';
                 removeBtn.className = 'alert-remove-btn';
@@ -453,6 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(removeBtn);
             } else {
                 const spacer = document.createElement('div');
+                spacer.className = 'alert-remove-btn-spacer';
                 row.appendChild(spacer);
             }
 
@@ -477,6 +482,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateAlertInterval(index, value) {
         const ranges = appState.alerts.ranges;
         ranges[index].intervalSec = clamp(value, ALERT_MIN_INTERVAL, ALERT_MAX_INTERVAL);
+        renderAlertRanges();
         saveAlertsToStorage();
     }
 
@@ -485,12 +491,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ranges.length >= ALERT_MAX_RANGES) return;
 
         const lastIndex = ranges.length - 1;
-        const lastUpper = ranges[lastIndex].upper;
-        const prevUpper = lastIndex > 0 ? ranges[lastIndex - 1].upper : appState.alerts.minBpm;
-        let newUpper = Math.round((prevUpper + lastUpper) / 2);
-        if (newUpper <= prevUpper) newUpper = prevUpper + 1;
+        let newUpper;
+        if (ranges.length === 1) {
+            newUpper = 140;
+        } else {
+            const lastEditableThreshold = ranges[ranges.length - 2].upper;
+            const prevThreshold = ranges.length > 2 ? ranges[ranges.length - 3].upper : appState.alerts.minBpm;
+            newUpper = Math.round((prevThreshold + lastEditableThreshold) / 2);
+            if (newUpper <= prevThreshold) newUpper = prevThreshold + 1;
+        }
 
-        ranges.splice(lastIndex, 0, {
+        ranges.splice(ranges.length - 1, 0, {
             upper: newUpper,
             intervalSec: 30,
             lastSpokenAt: 0
@@ -502,6 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function removeAlertRange(index) {
         const ranges = appState.alerts.ranges;
         if (ranges.length <= 1) return;
+        // Não permite remover o último (que é o range de 250 fixo)
         if (index >= 0 && index < ranges.length - 1) {
             ranges.splice(index, 1);
             renderAlertRanges();
@@ -557,28 +569,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function processBpmAlert(bpm) {
         const alerts = appState.alerts;
-        const prevBpm = alerts.lastBpm;
         alerts.lastBpm = bpm;
 
         if (!alerts.enabled) return;
         if (!('speechSynthesis' in window)) return;
 
-        const ranges = alerts.ranges;
-        const thresholds = ranges.slice(0, ranges.length - 1).map(r => r.upper);
-        if (prevBpm !== null && prevBpm !== undefined) {
-            thresholds.forEach((threshold) => {
-                const crossedUp = prevBpm < threshold && bpm >= threshold;
-                const crossedDown = prevBpm >= threshold && bpm < threshold;
-                if (crossedUp || crossedDown) {
-                    speakAlert(`BPM ${threshold}`);
-                }
-            });
-        }
-
         const rangeIndex = getRangeIndexForBpm(bpm);
         if (rangeIndex === -1) return;
 
-        const range = ranges[rangeIndex];
+        const range = alerts.ranges[rangeIndex];
         const now = Date.now();
         const intervalMs = range.intervalSec * 1000;
         if (!range.lastSpokenAt || now - range.lastSpokenAt >= intervalMs) {

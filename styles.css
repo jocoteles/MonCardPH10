@@ -1,7 +1,8 @@
 :root {
     --bg-color: #1a1a1a;
     --text-color: #f0f0f0;
-    --primary-color: #e60012; /* Cor da Polar */
+    --primary-color: #e60012;
+    /* Cor da Polar */
     --grid-color: #444;
     --grid-color-light: #333;
     --canvas-bg: #ffffff;
@@ -22,7 +23,7 @@ body {
 header {
     background-color: #333;
     padding: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
 nav {
@@ -42,7 +43,7 @@ nav {
 }
 
 .menu-btn:hover {
-    background-color: rgba(255,255,255,0.1);
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 .menu-btn.active {
@@ -67,7 +68,8 @@ main {
     display: flex;
 }
 
-h1, h2 {
+h1,
+h2 {
     color: var(--text-color);
     border-bottom: 1px solid var(--grid-color);
     padding-bottom: 10px;
@@ -95,7 +97,8 @@ button {
 /* Estilos de Aquisição */
 .modo-aquisicao {
     width: 100%;
-    display: none; /* Controlado por JS */
+    display: none;
+    /* Controlado por JS */
 }
 
 .canvas-container {
@@ -184,7 +187,7 @@ input[type="range"] {
     border: 1px solid var(--grid-color);
     width: 90%;
     max-width: 600px;
-    box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
     text-align: center;
 }
 
@@ -221,19 +224,28 @@ input[type="range"] {
     display: flex;
     justify-content: center;
     align-items: center;
-    flex-wrap: wrap; /* Permite que os botões quebrem para a próxima linha */
-    gap: 10px; /* Espaçamento consistente entre os botões */
-    margin-bottom: 15px; /* Espaço entre os botões e o canvas */
+    flex-wrap: wrap;
+    /* Permite que os botões quebrem para a próxima linha */
+    gap: 10px;
+    /* Espaçamento consistente entre os botões */
+    margin-bottom: 15px;
+    /* Espaço entre os botões e o canvas */
     width: 100%;
 }
 
 .ecg-controls button {
-    margin: 0; /* Remove a margem padrão para ter mais controle com 'gap' */
-    padding: 10px 15px; /* Um padding um pouco menor para esses botões */
-    font-size: 0.9rem; /* Uma fonte um pouco menor */
-    flex-grow: 1; /* Permite que os botões cresçam para preencher o espaço */
-    flex-basis: 150px; /* Define uma largura mínima/ideal para cada botão */
-    max-width: 250px; /* Evita que os botões fiquem excessivamente largos */
+    margin: 0;
+    /* Remove a margem padrão para ter mais controle com 'gap' */
+    padding: 10px 15px;
+    /* Um padding um pouco menor para esses botões */
+    font-size: 0.9rem;
+    /* Uma fonte um pouco menor */
+    flex-grow: 1;
+    /* Permite que os botões cresçam para preencher o espaço */
+    flex-basis: 150px;
+    /* Define uma largura mínima/ideal para cada botão */
+    max-width: 250px;
+    /* Evita que os botões fiquem excessivamente largos */
 }
 
 /* Media Query para telas estreitas (celulares em modo retrato e paisagem) */
@@ -250,7 +262,7 @@ input[type="range"] {
 
 /* Media Query para telas muito estreitas (celulares em modo retrato) */
 @media (max-width: 400px) {
-     .ecg-controls button {
+    .ecg-controls button {
         /* Em telas muito pequenas, faz com que cada botão ocupe 100% da largura,
            empilhando-os verticalmente para melhor legibilidade e usabilidade. */
         flex-basis: 100%;
@@ -262,7 +274,7 @@ input[type="range"] {
     /* Remove o fundo e as bordas para se integrar ao tema escuro */
     background-color: transparent;
     border: none;
-    
+
     /* Espaçamento e alinhamento central */
     padding: 10px 0;
     margin-top: -10px;
@@ -272,9 +284,12 @@ input[type="range"] {
 
 /* Estilo para o valor numérico do BPM, imitando o <p> do .hr-item */
 #bpm-display {
-    font-size: 2rem; /* Tamanho da fonte, igual ao .hr-item p */
-    font-weight: bold; /* Peso da fonte, igual ao .hr-item p */
-    color: var(--ecg-line-color); /* Usa a variável de cor verde, igual ao .hr-item p */
+    font-size: 2rem;
+    /* Tamanho da fonte, igual ao .hr-item p */
+    font-weight: bold;
+    /* Peso da fonte, igual ao .hr-item p */
+    color: var(--ecg-line-color);
+    /* Usa a variável de cor verde, igual ao .hr-item p */
     line-height: 1;
 }
 
@@ -283,13 +298,15 @@ input[type="range"] {
     font-size: 1rem;
     color: #aaa;
     font-weight: normal;
-    margin-left: 8px; /* Espaço entre o número e a unidade */
+    margin-left: 8px;
+    /* Espaço entre o número e a unidade */
 }
 
 #btn-auto-record {
     width: 100%;
     margin-top: 0;
-    background-color: #007bff; /* Um azul para indicar 'ação' */
+    background-color: #007bff;
+    /* Um azul para indicar 'ação' */
     transition: background-color 0.3s ease;
 }
 
@@ -298,7 +315,8 @@ input[type="range"] {
 }
 
 #btn-auto-record.recording {
-    background-color: #c82333; /* Um vermelho para indicar 'gravação ativa / perigo' */
+    background-color: #c82333;
+    /* Um vermelho para indicar 'gravação ativa / perigo' */
 }
 
 #btn-auto-record.recording:hover {
@@ -311,20 +329,26 @@ input[type="range"] {
     border-top: 1px solid var(--grid-color-light);
     display: flex;
     flex-direction: column;
-    align-items: flex-start; /* Alinha os itens à esquerda */
-    gap: 10px; /* Espaço entre os checkboxes */
+    align-items: flex-start;
+    /* Alinha os itens à esquerda */
+    gap: 10px;
+    /* Espaço entre os checkboxes */
 }
 
 .recording-options label {
-    display: flex; /* Alinha o checkbox com o texto */
+    display: flex;
+    /* Alinha o checkbox com o texto */
     align-items: center;
     cursor: pointer;
-    margin: 0; /* Remove margem padrão do label */
+    margin: 0;
+    /* Remove margem padrão do label */
 }
 
 .recording-options input[type="checkbox"] {
-    margin-right: 8px; /* Espaço entre o checkbox e o texto */
-    width: 16px; /* Define um tamanho consistente */
+    margin-right: 8px;
+    /* Espaço entre o checkbox e o texto */
+    width: 16px;
+    /* Define um tamanho consistente */
     height: 16px;
 }
 
@@ -416,6 +440,8 @@ input[type="range"] {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    margin-bottom: 30px;
+    /* Espaço extra para não grudar no rodapé */
 }
 
 .alert-threshold-item {
@@ -429,11 +455,16 @@ input[type="range"] {
     border: 1px solid #2f2f2f;
 }
 
+.alert-threshold-item.is-last {
+    border-style: dashed;
+    border-color: #444;
+}
+
 .alert-color-dot {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    box-shadow: 0 0 6px rgba(0,0,0,0.3);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
 }
 
 .alert-input-group {
@@ -466,6 +497,11 @@ input[type="range"] {
     font-size: 1rem;
     font-weight: 600;
     outline: none;
+}
+
+.alert-input.readonly {
+    color: #888;
+    cursor: default;
 }
 
 .alert-input-unit {
@@ -524,8 +560,10 @@ input[type="range"] {
 
 /* --- Estilos do Indicador de Wake Lock --- */
 .wake-lock-indicator {
-    display: none; /* Oculto por padrão */
-    background-color: rgba(76, 175, 80, 0.15); /* Verde translúcido */
+    display: none;
+    /* Oculto por padrão */
+    background-color: rgba(76, 175, 80, 0.15);
+    /* Verde translúcido */
     border: 1px solid #4CAF50;
     border-radius: 6px;
     padding: 8px 15px;
@@ -556,9 +594,12 @@ input[type="range"] {
 
 /* Animação sutil de pulso no ícone */
 @keyframes battery-pulse {
-    0%, 100% {
+
+    0%,
+    100% {
         transform: scale(1);
     }
+
     50% {
         transform: scale(1.1);
     }
@@ -566,9 +607,12 @@ input[type="range"] {
 
 /* Animação sutil de brilho no container */
 @keyframes pulse-glow {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
     }
+
     50% {
         box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
     }
@@ -579,7 +623,7 @@ input[type="range"] {
     .wake-lock-text {
         font-size: 0.85rem;
     }
-    
+
     .wake-lock-indicator {
         padding: 6px 12px;
     }
@@ -590,7 +634,7 @@ input[type="range"] {
         flex-direction: column;
         gap: 4px;
     }
-    
+
     .wake-lock-text {
         font-size: 0.8rem;
     }
