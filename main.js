@@ -158,6 +158,34 @@ document.addEventListener('DOMContentLoaded', () => {
     let batteryUpdateInterval = null;
     let bpmUpdateInterval = null;
 
+    // --- ALERTAS DE FREQUÊNCIA (CONSTANTES) ---
+    const ALERT_MAX_RANGES = 6;
+    const ALERT_MAX_THRESHOLDS = ALERT_MAX_RANGES - 1;
+    const ALERT_COLORS = ['#5469ff', '#25c16f', '#f0c24b', '#f28b30', '#e04a3a', '#4aa3ff'];
+    const ALERT_MIN_BPM = 30;
+    const ALERT_MAX_BPM = 250;
+    const ALERT_MIN_INTERVAL = 3;
+    const ALERT_MAX_INTERVAL = 300;
+    const ALERT_STORAGE_KEY = 'monitorcardiaco.alertas';
+    // DEFAULTS dos alertas: altere aqui para mudar os limiares e intervalos iniciais.
+    const DEFAULT_ALERT_RANGES = [
+        { upper: 80, intervalSec: 60 },
+        { upper: 100, intervalSec: 40 },
+        { upper: 120, intervalSec: 20 },
+        { upper: 130, intervalSec: 10 },
+        { upper: 150, intervalSec: 5 }
+    ];
+
+    // CONFIGURE AQUI a voz do alerta: voiceName, idioma (lang), volume, velocidade (rate) e pitch.
+    // Para descobrir nomes disponíveis, use: speechSynthesis.getVoices()
+    const ALERT_VOICE_SETTINGS = {
+        voiceName: '',
+        lang: 'pt-BR',
+        volume: 1,
+        rate: 1,
+        pitch: 1
+    };
+
     let appState = {
         modo: 'ecg',
         streamAtivo: false,
@@ -253,33 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // =================================================================================
     // --- ALERTAS DE FREQUÊNCIA ---
     // =================================================================================
-
-    const ALERT_MAX_RANGES = 6;
-    const ALERT_MAX_THRESHOLDS = ALERT_MAX_RANGES - 1;
-    const ALERT_COLORS = ['#5469ff', '#25c16f', '#f0c24b', '#f28b30', '#e04a3a', '#4aa3ff'];
-    const ALERT_MIN_BPM = 30;
-    const ALERT_MAX_BPM = 250;
-    const ALERT_MIN_INTERVAL = 3;
-    const ALERT_MAX_INTERVAL = 300;
-    const ALERT_STORAGE_KEY = 'monitorcardiaco.alertas';
-    // DEFAULTS dos alertas: altere aqui para mudar os limiares e intervalos iniciais.
-    const DEFAULT_ALERT_RANGES = [
-        { upper: 80, intervalSec: 60 },
-        { upper: 100, intervalSec: 40 },
-        { upper: 120, intervalSec: 20 },
-        { upper: 130, intervalSec: 10 },
-        { upper: 150, intervalSec: 5 }
-    ];
-
-    // CONFIGURE AQUI a voz do alerta: voiceName, idioma (lang), volume, velocidade (rate) e pitch.
-    // Para descobrir nomes disponíveis, use: speechSynthesis.getVoices()
-    const ALERT_VOICE_SETTINGS = {
-        voiceName: '',
-        lang: 'pt-BR',
-        volume: 1,
-        rate: 1,
-        pitch: 1
-    };
 
     function clamp(value, min, max) {
         return Math.min(Math.max(value, min), max);
