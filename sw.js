@@ -1,6 +1,5 @@
-// ⚠️  IMPORTANTE: incremente CACHE_NAME a cada deploy (ex: v2 → v3).
-//    Isso garante que todos os usuários descartem o cache antigo e
-//    recebam os arquivos atualizados na próxima visita.
+//    A CADA DEPLOY: incrementar o número da versão em CACHE_NAME.
+//    Sem isso, usuários com cache antigo continuarão vendo a versão anterior.
 const CACHE_NAME = 'moncardph10-v2';
 
 const urlsToCache = [
@@ -41,23 +40,8 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch event:
-//   - index.html → sempre da rede (nunca do cache), para garantir que
-//     o ponto de entrada seja sempre a versão mais recente.
-//   - demais assets → network-first com fallback para cache (funciona offline).
+// Fetch: network-first com fallback para cache (funciona offline)
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-  const isHtmlEntry = url.pathname.endsWith('/') ||
-                      url.pathname.endsWith('/index.html');
-
-  if (isHtmlEntry) {
-    // Network-only para o HTML: se offline, mostra mensagem de erro do browser.
-    // Isso evita que uma versão antiga do HTML (e portanto do JS) seja servida.
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  // Network-first para todos os outros assets
   event.respondWith(
     fetch(event.request)
       .then(response => {
@@ -75,7 +59,7 @@ self.addEventListener('fetch', event => {
   );
 });
 
-// Listen for messages to skip waiting
+// Recebe mensagem do app para ativar SW em espera imediatamente
 self.addEventListener('message', event => {
   if (event.data === 'skipWaiting') {
     self.skipWaiting();
