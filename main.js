@@ -30,6 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const bpmMinDisplayEl = document.getElementById('bpm-min-display');
     const bpmMaxDisplayEl = document.getElementById('bpm-max-display');
     const btnResetMinMax = document.getElementById('btn-reset-minmax');
+    const bpmMinDisplayHrppiEl = document.getElementById('bpm-min-display-hrppi');
+    const bpmMaxDisplayHrppiEl = document.getElementById('bpm-max-display-hrppi');
+    const btnResetMinMaxHrppi = document.getElementById('btn-reset-minmax-hrppi');
     const hrValueEl = document.getElementById('hr-value');
     const ppiValueEl = document.getElementById('ppi-value');
     const ppiErrorValueEl = document.getElementById('ppi-error-value');
@@ -536,10 +539,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.bpmMin === null || bpm < appState.bpmMin) {
             appState.bpmMin = bpm;
             bpmMinDisplayEl.textContent = bpm;
+            bpmMinDisplayHrppiEl.textContent = bpm;
         }
         if (appState.bpmMax === null || bpm > appState.bpmMax) {
             appState.bpmMax = bpm;
             bpmMaxDisplayEl.textContent = bpm;
+            bpmMaxDisplayHrppiEl.textContent = bpm;
         }
     }
 
@@ -548,6 +553,8 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.bpmMax = null;
         bpmMinDisplayEl.textContent = '--';
         bpmMaxDisplayEl.textContent = '--';
+        bpmMinDisplayHrppiEl.textContent = '--';
+        bpmMaxDisplayHrppiEl.textContent = '--';
     }
 
 
@@ -1723,6 +1730,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSaveEcg.addEventListener('click', saveEcgData);
         btnSavePng.addEventListener('click', saveCanvasAsPng);
         btnResetMinMax.addEventListener('click', resetBpmMinMax);
+        btnResetMinMaxHrppi.addEventListener('click', resetBpmMinMax);
         btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
         fileInputEcg.addEventListener('change', loadEcgData);
         btnShowLastEcg.addEventListener('click', () => {
