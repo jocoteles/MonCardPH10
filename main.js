@@ -27,6 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const modoEcgView = document.getElementById('modo-ecg');
     const modoHrppiView = document.getElementById('modo-hrppi');
     const bpmDisplayEl = document.getElementById('bpm-display');
+    const bpmMinDisplayEl = document.getElementById('bpm-min-display');
+    const bpmMaxDisplayEl = document.getElementById('bpm-max-display');
+    const btnResetMinMax = document.getElementById('btn-reset-minmax');
     const hrValueEl = document.getElementById('hr-value');
     const ppiValueEl = document.getElementById('ppi-value');
     const ppiErrorValueEl = document.getElementById('ppi-error-value');
@@ -58,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Alertas de Frequência
     const chkAlertasEnabled = document.getElementById('chk-alertas-enabled');
     const alertThresholdList = document.getElementById('alert-threshold-list');
+    const alertRangeCount = document.getElementById('alert-range-count');
     const btnAddAlertRange = document.getElementById('btn-add-alert-range');
     const btnResetAlerts = document.getElementById('btn-reset-alerts');
 
@@ -189,6 +193,8 @@ document.addEventListener('DOMContentLoaded', () => {
         streamAtivo: false,
         displayMode: 'live',
         lastReceivedHR: null,
+        bpmMin: null,
+        bpmMax: null,
         hrSamples: [],
 
         wakeLock: {
@@ -376,6 +382,8 @@ document.addEventListener('DOMContentLoaded', () => {
         normalizeAlertRanges();
         const ranges = appState.alerts.ranges;
 
+        alertRangeCount.textContent = `${ranges.length} / ${ALERT_MAX_RANGES}`;
+
         alertThresholdList.innerHTML = '';
         ranges.forEach((range, index) => {
             const row = document.createElement('div');
@@ -522,6 +530,26 @@ document.addEventListener('DOMContentLoaded', () => {
         utterance.pitch = ALERT_VOICE_SETTINGS.pitch;
         window.speechSynthesis.speak(utterance);
     }
+
+    function updateBpmMinMax(bpm) {
+        if (bpm === null || bpm === undefined) return;
+        if (appState.bpmMin === null || bpm < appState.bpmMin) {
+            appState.bpmMin = bpm;
+            bpmMinDisplayEl.textContent = bpm;
+        }
+        if (appState.bpmMax === null || bpm > appState.bpmMax) {
+            appState.bpmMax = bpm;
+            bpmMaxDisplayEl.textContent = bpm;
+        }
+    }
+
+    function resetBpmMinMax() {
+        appState.bpmMin = null;
+        appState.bpmMax = null;
+        bpmMinDisplayEl.textContent = '--';
+        bpmMaxDisplayEl.textContent = '--';
+    }
+
 
     function getRangeIndexForBpm(bpm) {
         const ranges = appState.alerts.ranges;
@@ -902,6 +930,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         hrValueEl.textContent = hr;
+        updateBpmMinMax(hr);
         ppiValueEl.textContent = ppiValues.length > 0 ? ppiValues.join(', ') : '--';
         ppiErrorValueEl.textContent = '--';
         ppiFlagsValueEl.textContent = 'OK';
@@ -916,6 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const hr = hrFormatIs16bit ? data.getUint16(1, true) : data.getUint8(1);
         appState.lastReceivedHR = hr;
+        updateBpmMinMax(hr);
 
         if (appState.autoRecord.active && appState.autoRecord.saveBpm) {
             appState.hrSamples.push(hr);
@@ -1692,6 +1722,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Controles da tela de Aquisição
         btnSaveEcg.addEventListener('click', saveEcgData);
         btnSavePng.addEventListener('click', saveCanvasAsPng);
+        btnResetMinMax.addEventListener('click', resetBpmMinMax);
         btnLoadEcg.addEventListener('click', () => fileInputEcg.click());
         fileInputEcg.addEventListener('change', loadEcgData);
         btnShowLastEcg.addEventListener('click', () => {

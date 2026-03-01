@@ -50,6 +50,17 @@
                 <div class="bpm-display-container">
                     <span id="bpm-display">--</span>
                     <span class="bpm-unit">BPM</span>
+                    <div class="bpm-minmax-row">
+                        <span class="bpm-minmax-item">
+                            <span class="bpm-minmax-label">mín</span>
+                            <span id="bpm-min-display" class="bpm-minmax-value">--</span>
+                        </span>
+                        <button id="btn-reset-minmax" class="bpm-reset-btn" title="Resetar mín/máx">↺</button>
+                        <span class="bpm-minmax-item bpm-minmax-right">
+                            <span id="bpm-max-display" class="bpm-minmax-value">--</span>
+                            <span class="bpm-minmax-label">máx</span>
+                        </span>
+                    </div>
                 </div>
                  <div id="wake-lock-indicator" class="wake-lock-indicator">
                     <span class="wake-lock-icon">🔋</span>
@@ -147,9 +158,13 @@
                         Habilitar alertas sonoros
                     </label>
 
-                    <div class="alert-thresholds">                        
+                    <div class="alert-thresholds">
+                        <div class="alert-thresholds-title">
+                            <span>Limiares</span>
+                            <span id="alert-range-count" class="alert-range-count">3 / 6</span>
+                        </div>
                         <div class="alert-threshold-headers">
-                            <span>Limiar (BPM)</span>
+                            <span>A partir de (BPM)</span>
                             <span>Intervalo (seg)</span>
                         </div>
                         <div id="alert-threshold-list" class="alert-threshold-list"></div>
