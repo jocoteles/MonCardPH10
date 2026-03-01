@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- ALERTAS DE FREQUÊNCIA (CONSTANTES) ---
     const ALERT_MAX_RANGES = 6;
-    
+
     const ALERT_COLORS = ['#5469ff', '#25c16f', '#f0c24b', '#f28b30', '#e04a3a', '#4aa3ff'];
     const ALERT_MIN_BPM = 30;
     const ALERT_MAX_BPM = 250;
@@ -174,11 +174,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // DEFAULTS dos alertas: 'lower' é o BPM limiar a partir do qual o intervalo se aplica.
     // Exemplo: { lower: 80, intervalSec: 60 } → avisa a cada 60s quando BPM estiver entre 80 e o próximo limiar.
     const DEFAULT_ALERT_RANGES = [
-        { lower: 80,  intervalSec: 60 },
+        { lower: 80, intervalSec: 60 },
         { lower: 100, intervalSec: 40 },
         { lower: 120, intervalSec: 20 },
         { lower: 130, intervalSec: 10 },
-        { lower: 150, intervalSec: 5  },
+        { lower: 150, intervalSec: 5 },
     ];
 
     // CONFIGURE AQUI a voz do alerta: voiceName, idioma (lang), volume, velocidade (rate) e pitch.
@@ -283,6 +283,14 @@ document.addEventListener('DOMContentLoaded', () => {
             modoEcgView.style.display = 'none';
             modoHrppiView.style.display = 'block';
         }
+
+        // Sincroniza os valores de min/max sempre que mudar o modo
+        const minText = appState.bpmMin !== null ? appState.bpmMin : '--';
+        const maxText = appState.bpmMax !== null ? appState.bpmMax : '--';
+        bpmMinDisplayEl.textContent = minText;
+        bpmMinDisplayHrppiEl.textContent = minText;
+        bpmMaxDisplayEl.textContent = maxText;
+        bpmMaxDisplayHrppiEl.textContent = maxText;
     }
 
     // =================================================================================
@@ -538,14 +546,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (bpm === null || bpm === undefined) return;
         if (appState.bpmMin === null || bpm < appState.bpmMin) {
             appState.bpmMin = bpm;
-            bpmMinDisplayEl.textContent = bpm;
-            bpmMinDisplayHrppiEl.textContent = bpm;
         }
         if (appState.bpmMax === null || bpm > appState.bpmMax) {
             appState.bpmMax = bpm;
-            bpmMaxDisplayEl.textContent = bpm;
-            bpmMaxDisplayHrppiEl.textContent = bpm;
         }
+
+        // Atualiza sempre ambos os displays para garantir sincronização entre os modos
+        const minText = appState.bpmMin !== null ? appState.bpmMin : '--';
+        const maxText = appState.bpmMax !== null ? appState.bpmMax : '--';
+
+        bpmMinDisplayEl.textContent = minText;
+        bpmMinDisplayHrppiEl.textContent = minText;
+        bpmMaxDisplayEl.textContent = maxText;
+        bpmMaxDisplayHrppiEl.textContent = maxText;
     }
 
     function resetBpmMinMax() {
