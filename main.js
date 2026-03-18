@@ -161,6 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let hrCharacteristic = null;
     let batteryUpdateInterval = null;
     let bpmUpdateInterval = null;
+    let intentionalDisconnect = false;
+    let reconnectTimeout = null;
 
     // --- ALERTAS DE FREQUÊNCIA (CONSTANTES) ---
     const ALERT_MAX_RANGES = 6;
@@ -610,16 +612,44 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- LÓGICA DE CONEXÃO BLUETOOTH ---
     // =================================================================================
 
-    btnConectar.addEventListener('click', async () => {
+    async function handleConnect() {
+        if (polarDevice && polarDevice.gatt.connected) {
+            intentionalDisconnect = true;
+            statusConexao.textContent = 'Desconectando manualmente...';
+            polarDevice.gatt.disconnect();
+            return;
+        }
+
         try {
             statusConexao.textContent = 'Procurando dispositivo...';
             const options = {
-                filters: [{ namePrefix: 'Polar H10' }],
+                filters: [
+                    { name: 'Polar H10 08F64939' },
+                    { namePrefix: 'Polar H10' }
+                ],
                 optionalServices: [PMD_SERVICE_UUID, HR_SERVICE_UUID, BATTERY_SERVICE_UUID]
             };
-            polarDevice = await navigator.bluetooth.requestDevice(options);
+            const device = await navigator.bluetooth.requestDevice(options);
+            await connectToDevice(device);
+        } catch (error) {
+            if (error.name === 'NotFoundError') {
+                statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
+            } else {
+                console.error('Erro na conexão Bluetooth:', error);
+                statusConexao.textContent = `Erro: ${error.message}`;
+            }
+        }
+    }
 
+    async function connectToDevice(device) {
+        try {
+            polarDevice = device;
             statusConexao.textContent = `Conectando a ${polarDevice.name}...`;
+            
+            // Adiciona o listener antes de conectar para capturar desconexões durante o processo, se necessário
+            polarDevice.removeEventListener('gattserverdisconnected', onDisconnect);
+            polarDevice.addEventListener('gattserverdisconnected', onDisconnect);
+
             const server = await polarDevice.gatt.connect();
 
             statusConexao.textContent = 'Obtendo serviços e características...';
@@ -631,20 +661,60 @@ document.addEventListener('DOMContentLoaded', () => {
             hrCharacteristic = await hrService.getCharacteristic(HR_CHARACTERISTIC_UUID);
 
             statusConexao.textContent = `Conectado a ${polarDevice.name}`;
-            btnConectar.textContent = 'Conectado';
-            btnConectar.disabled = true;
+            btnConectar.textContent = `Desconectar de Polar H10`; 
+            btnConectar.disabled = false;
+            intentionalDisconnect = false;
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
 
-            polarDevice.addEventListener('gattserverdisconnected', onDisconnect);
+            // Se o stream estava ativo anteriormente, tenta reiniciar
+            if (appState.streamAtivo) {
+                 appState.streamAtivo = false; // reset para permitir restart
+                 startStream();
+            }
 
         } catch (error) {
-            if (error.name === 'NotFoundError') {
-                statusConexao.textContent = 'Busca cancelada. Clique para tentar novamente.';
-            } else {
-                console.error('Erro na conexão Bluetooth:', error);
-                statusConexao.textContent = `Erro: ${error.message}`;
+            console.error('Erro detalhado na conexão:', error);
+            statusConexao.textContent = `Erro: ${error.message}`;
+            // Se falhou e não foi intencional, podemos tentar reconectar se já tivéssemos o device
+            if (!intentionalDisconnect && polarDevice) {
+                 scheduleReconnection();
             }
         }
-    });
+    }
+
+    async function autoConnect() {
+        if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return false;
+        try {
+            const devices = await navigator.bluetooth.getDevices();
+            // Prioriza o dispositivo específico do usuário se já estiver autorizado
+            const matched = devices.find(d => d.name === 'Polar H10 08F64939') || 
+                            devices.find(d => d.name && d.name.startsWith('Polar H10'));
+            
+            if (matched) {
+                console.log('Dispositivo conhecido encontrado:', matched.name);
+                await connectToDevice(matched);
+                return true;
+            }
+        } catch (err) {
+            console.warn('Erro ao listar dispositivos conhecidos:', err);
+        }
+        return false;
+    }
+
+    function scheduleReconnection() {
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        if (intentionalDisconnect || !polarDevice) return;
+
+        statusConexao.textContent = 'Conexão perdida. Tentando reconectar...';
+        reconnectTimeout = setTimeout(async () => {
+            console.log('Tentando reconexão automática...');
+            if (polarDevice) {
+                await connectToDevice(polarDevice);
+            }
+        }, 3000); // 3 segundos de intervalo
+    }
+
+    btnConectar.addEventListener('click', handleConnect);
 
     function onDisconnect() {
         statusConexao.textContent = 'Dispositivo desconectado.';
@@ -652,7 +722,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnConectar.textContent = 'Conectar ao Dispositivo';
         btnConectar.disabled = false;
 
-        polarDevice = null;
+        const previousDevice = polarDevice;
+        // Só limpa polarDevice se não formos reconectar
+        if (intentionalDisconnect) {
+            polarDevice = null;
+        }
+        
         pmdControlPoint = null;
         pmdData = null;
         hrCharacteristic = null;
@@ -660,7 +735,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (batteryUpdateInterval) clearInterval(batteryUpdateInterval);
         if (bpmUpdateInterval) clearInterval(bpmUpdateInterval);
 
-        stopStream();
+        // Se a desconexão NÃO foi intencional, mantemos o estado de stream para tentar voltar se reconectar
+        if (intentionalDisconnect) {
+            stopStream();
+        } else {
+            console.log('Desconexão não intencional detectada. Agendando reconexão...');
+            scheduleReconnection();
+        }
     }
 
 
@@ -1670,9 +1751,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function init() {
         loadAlertsFromStorage();
+        // Tenta conexão silenciosa (sem picker) logo no início se suportado
+        autoConnect();
 
         // Modal de Aviso
-        btnAgree.addEventListener('click', () => { disclaimerOverlay.style.display = 'none'; });
+        btnAgree.addEventListener('click', async () => {
+            disclaimerOverlay.style.display = 'none';
+            // Tenta conectar automaticamente a dispositivos já conhecidos.
+            // Se não encontrar, abre o seletor (isso funciona porque o clique no modal é um gesto do usuário).
+            const connected = await autoConnect();
+            if (!connected) {
+                handleConnect(); // Abre o picker
+            }
+        });
         btnDisagree.addEventListener('click', () => {
             document.body.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; padding: 20px; font-size: 1.2rem;"><p>Você precisa concordar com os termos para utilizar esta aplicação.</p></div>`;
         });

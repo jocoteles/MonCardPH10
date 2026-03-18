@@ -1,6 +1,6 @@
 //    A CADA DEPLOY: incrementar o número da versão em CACHE_NAME.
 //    Sem isso, usuários com cache antigo continuarão vendo a versão anterior.
-const CACHE_NAME = 'moncardph10-v4.01';
+const CACHE_NAME = 'moncardph10-v4.02';
 
 const urlsToCache = [
   './',
